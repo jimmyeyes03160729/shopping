@@ -166,13 +166,30 @@ async function runGroundedShoppingSearch(keyword, env) {
         const text = await response.text();
 
         if (!response.ok) {
+          const lower = text.toLowerCase();
+
+          if (
+            response.status === 429 &&
+            (
+              lower.includes("exceeded your current quota") ||
+              lower.includes("quota") ||
+              lower.includes("billing")
+            )
+          ) {
+            throw new Error(
+              "Google Search Grounding 配額不足：請在 Google AI Studio / Google Cloud 將目前 Gemini API 專案升級為 Paid Tier 並啟用 Billing。"
+            );
+          }
+
           lastError = new Error(
             `Gemini ${model} HTTP ${response.status}: ${text.slice(0, 220)}`
           );
-          if ([429, 500, 502, 503, 504].includes(response.status) && attempt < 2) {
+
+          if ([500, 502, 503, 504].includes(response.status) && attempt < 2) {
             await sleep(700 * attempt);
             continue;
           }
+
           break;
         }
 
