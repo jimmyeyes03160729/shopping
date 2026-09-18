@@ -8,6 +8,9 @@ const SOURCE_LABELS = {
 
 export default {
   async fetch(request, env) {
+    if (request.method === "OPTIONS") {
+      return new Response(null, { status: 204, headers: corsHeaders() });
+    }
     const url = new URL(request.url);
 
     if (url.pathname === "/api/health") {
@@ -389,11 +392,20 @@ function cleanError(error) {
   return String(error?.message || error || "Unknown error").slice(0, 300);
 }
 
+function corsHeaders() {
+  return {
+    "access-control-allow-origin": "*",
+    "access-control-allow-methods": "GET,POST,OPTIONS",
+    "access-control-allow-headers": "Content-Type",
+  };
+}
+
 function json(payload, status = 200) {
   return new Response(JSON.stringify(payload), {
     status,
     headers: {
       ...JSON_HEADERS,
+      ...corsHeaders(),
       "cache-control": "no-store",
     },
   });
