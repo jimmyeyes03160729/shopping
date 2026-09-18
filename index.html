@@ -6,38 +6,58 @@
   <title>我的個人 AI 比價系統</title>
   <script src="https://cdn.tailwindcss.com"></script>
 </head>
-<body class="bg-gray-50 text-gray-800 p-6 min-h-screen">
-  <div class="max-w-4xl mx-auto space-y-6">
+<body class="bg-gray-50 text-gray-800 p-4 sm:p-8 min-h-screen">
+  <div class="max-w-5xl mx-auto space-y-6">
     
-    <header class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
-      <h1 class="text-2xl font-bold text-gray-900">🛍️ 個人專屬 AI 比價看板</h1>
-      <p class="text-sm text-gray-500 mt-1">API Key 與自動排程由 GitHub 全自動託管，不需手動輸入金鑰</p>
+    <!-- 頁頭 -->
+    <header class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+      <div>
+        <h1 class="text-2xl font-bold text-gray-900">🛍️ 個人專屬 AI 比價看板</h1>
+        <p class="text-sm text-gray-500 mt-1">同規格智能聚合 + 自動標記全網最低價與商品連結</p>
+      </div>
+      <div class="flex items-center gap-2">
+        <button onclick="loadResults()" class="text-xs bg-gray-100 hover:bg-gray-200 text-gray-700 font-medium px-3.5 py-2 rounded-xl transition">
+          🔄 重新整理結果
+        </button>
+      </div>
     </header>
 
-    <!-- 官網清單區（只填首頁） -->
+    <!-- 搜尋欄位與 GitHub 比價啟動 -->
+    <section class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 space-y-4">
+      <h2 class="text-lg font-bold text-gray-800">🔍 商品關鍵字搜尋</h2>
+      <div class="flex flex-col sm:flex-row gap-2">
+        <input id="keywordInput" type="text" placeholder="輸入關鍵字 (例: iPhone 15 128G、Sony WH-1000XM5)" 
+               class="flex-1 px-4 py-2.5 border rounded-xl text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+        <button onclick="triggerGitHubAction()" class="bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold px-5 py-2.5 rounded-xl transition flex items-center justify-center gap-1.5 shadow-sm">
+          <span>🚀 前往 GitHub 執行新比價</span>
+        </button>
+      </div>
+      <div class="flex justify-between items-center text-xs text-gray-400">
+        <span id="metaInfo">正在讀取最新比價結果...</span>
+        <span>提示：在輸入框輸入文字可即時篩選下方現有結果</span>
+      </div>
+    </section>
+
+    <!-- 官網清單管理區 (只填首頁) -->
     <section class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 space-y-3">
       <h2 class="text-lg font-bold text-gray-800">🌐 追蹤的購物官網首頁</h2>
       <div class="flex gap-2">
-        <input id="storeUrlInput" type="text" placeholder="直接貼上官網首頁，例如: https://shopee.tw" 
+        <input id="storeUrlInput" type="text" placeholder="直接貼上首頁網址，例如: https://shopee.tw" 
                class="flex-1 px-3 py-2 border rounded-xl text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
         <button onclick="addStore()" class="bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-4 py-2 rounded-xl transition">
-          新增首頁
+          新增官網
         </button>
       </div>
       <div id="storeList" class="flex flex-wrap gap-2 pt-2"></div>
-      <p class="text-xs text-gray-400">提示：修改後的清單會在下次 GitHub 比價時使用。</p>
     </section>
 
-    <!-- 比價結果展示區 -->
+    <!-- 比價結果表格 -->
     <section class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 space-y-4">
       <div class="flex justify-between items-center">
-        <div>
-          <h2 class="text-lg font-bold text-gray-800">📊 最新比價結果</h2>
-          <p id="metaInfo" class="text-xs text-gray-400 mt-0.5">載入中...</p>
-        </div>
-        <button onclick="loadResults()" class="text-xs bg-gray-100 hover:bg-gray-200 px-3 py-1.5 rounded-lg">
-          🔄 重新載入
-        </button>
+        <h2 class="text-lg font-bold text-gray-800">📊 比價結果清單</h2>
+        <span class="text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-full font-medium">
+          綠色標籤為同規格最低價
+        </span>
       </div>
 
       <div class="overflow-x-auto">
@@ -46,9 +66,10 @@
             <tr>
               <th class="px-4 py-3 font-semibold text-gray-700">規格組別</th>
               <th class="px-4 py-3 font-semibold text-gray-700">商城</th>
-              <th class="px-4 py-3 font-semibold text-gray-700">商品名稱</th>
+              <th class="px-4 py-3 font-semibold text-gray-700">商品標題</th>
               <th class="px-4 py-3 font-semibold text-gray-700">價格</th>
               <th class="px-4 py-3 font-semibold text-gray-700">規格說明</th>
+              <th class="px-4 py-3 font-semibold text-gray-700 text-center">購買連結</th>
             </tr>
           </thead>
           <tbody id="resultBody" class="divide-y divide-gray-100"></tbody>
@@ -59,6 +80,7 @@
   </div>
 
   <script>
+    let allItems = [];
     let stores = JSON.parse(localStorage.getItem("my_simple_stores")) || [
       "https://shopee.tw",
       "https://24h.pchome.com.tw",
@@ -68,6 +90,11 @@
     window.onload = () => {
       renderStores();
       loadResults();
+
+      // 即時搜尋過濾監聽
+      document.getElementById("keywordInput").addEventListener("input", (e) => {
+        filterAndRenderTable(e.target.value.trim().toLowerCase());
+      });
     };
 
     function renderStores() {
@@ -96,32 +123,91 @@
       renderStores();
     }
 
+    // 引導前往 GitHub Actions 觸發比價
+    function triggerGitHubAction() {
+      const keyword = document.getElementById("keywordInput").value.trim();
+      alert(`請在即將打開的 GitHub 頁面中：\n1. 點擊右側「Run workflow」\n2. 貼入關鍵字：${keyword || '你想要比價的商品'}\n3. 點擊綠色按鈕執行！`);
+      // 自動開新分頁跳轉到倉庫的 Actions 頁面
+      const repoUrl = window.location.href.split('.github.io')[0].replace('https://', '');
+      const user = repoUrl.split('.')[0];
+      const repo = window.location.pathname.split('/')[1] || '';
+      window.open(`https://github.com/${user}/${repo}/actions`, '_blank');
+    }
+
     async function loadResults() {
       const meta = document.getElementById("metaInfo");
-      const body = document.getElementById("resultBody");
       try {
         const res = await fetch('result.json?t=' + new Date().getTime());
-        if (!res.ok) throw new Error("尚未產生比價結果，請先在 GitHub Actions 執行比價。");
+        if (!res.ok) throw new Error("尚未找到 result.json，請先至 GitHub Actions 執行比價。");
         const data = await res.json();
         
-        meta.innerText = `搜尋關鍵字：${data.keyword} | 更新時間：${data.updated_at}`;
-        
-        // 排序：同規格一組，價格由低到高
-        data.items.sort((a, b) => a.matched_group_id.localeCompare(b.matched_group_id) || a.price - b.price);
-        
-        body.innerHTML = data.items.map(p => `
-          <tr class="hover:bg-gray-50">
-            <td class="px-4 py-3 font-mono text-xs text-blue-600 font-semibold">${p.matched_group_id}</td>
-            <td class="px-4 py-3 font-medium text-gray-900">${p.store_name}</td>
-            <td class="px-4 py-3">${p.canonical_name}</td>
-            <td class="px-4 py-3 font-bold text-emerald-600">NT$ ${p.price.toLocaleString()}</td>
-            <td class="px-4 py-3 text-xs text-gray-500">${p.key_specs}</td>
-          </tr>
-        `).join("");
+        meta.innerText = `最後搜尋：${data.keyword} | 更新時間：${data.updated_at}`;
+        allItems = data.items || [];
+        filterAndRenderTable("");
       } catch (err) {
         meta.innerText = err.message;
-        body.innerHTML = `<tr><td colspan="5" class="px-4 py-6 text-center text-gray-400 text-xs">${err.message}</td></tr>`;
+        document.getElementById("resultBody").innerHTML = `
+          <tr><td colspan="6" class="px-4 py-8 text-center text-gray-400 text-xs">${err.message}</td></tr>
+        `;
       }
+    }
+
+    function filterAndRenderTable(filterText) {
+      const body = document.getElementById("resultBody");
+      
+      let filtered = allItems;
+      if (filterText) {
+        filtered = allItems.filter(item => 
+          item.canonical_name.toLowerCase().includes(filterText) ||
+          item.store_name.toLowerCase().includes(filterText) ||
+          item.matched_group_id.toLowerCase().includes(filterText) ||
+          item.key_specs.toLowerCase().includes(filterText)
+        );
+      }
+
+      if (filtered.length === 0) {
+        body.innerHTML = `<tr><td colspan="6" class="px-4 py-8 text-center text-gray-400 text-xs">沒有找到符合條件的商品</td></tr>`;
+        return;
+      }
+
+      // 1. 找出各群組的最低價
+      const minPriceMap = {};
+      filtered.forEach(item => {
+        const gid = item.matched_group_id;
+        if (!minPriceMap[gid] || item.price < minPriceMap[gid]) {
+          minPriceMap[gid] = item.price;
+        }
+      });
+
+      // 2. 排序：相同規格群組在一起，價格由低到高排列
+      filtered.sort((a, b) => a.matched_group_id.localeCompare(b.matched_group_id) || a.price - b.price);
+
+      // 3. 渲染
+      body.innerHTML = filtered.map(p => {
+        const isLowest = p.price === minPriceMap[p.matched_group_id];
+        const targetUrl = p.url && p.url.startsWith("http") ? p.url : `https://www.google.com/search?q=${encodeURIComponent(p.store_name + ' ' + p.canonical_name)}`;
+        
+        return `
+          <tr class="hover:bg-gray-50 transition ${isLowest ? 'bg-emerald-50/40' : ''}">
+            <td class="px-4 py-3 font-mono text-xs text-blue-600 font-semibold">${p.matched_group_id}</td>
+            <td class="px-4 py-3 font-medium text-gray-900">${p.store_name}</td>
+            <td class="px-4 py-3 font-medium text-gray-800">${p.canonical_name}</td>
+            <td class="px-4 py-3 whitespace-nowrap">
+              <span class="font-bold ${isLowest ? 'text-emerald-600 text-base' : 'text-gray-800'}">
+                NT$ ${Number(p.price).toLocaleString()}
+              </span>
+              ${isLowest ? '<span class="ml-1.5 inline-block bg-emerald-600 text-white text-[10px] font-bold px-1.5 py-0.5 rounded shadow-sm">最低價</span>' : ''}
+            </td>
+            <td class="px-4 py-3 text-xs text-gray-500">${p.key_specs || '-'}</td>
+            <td class="px-4 py-3 text-center whitespace-nowrap">
+              <a href="${targetUrl}" target="_blank" rel="noopener noreferrer" 
+                 class="inline-block bg-blue-50 hover:bg-blue-600 hover:text-white text-blue-600 border border-blue-200 text-xs font-semibold px-3 py-1.5 rounded-lg transition">
+                前往購買 ↗
+              </a>
+            </td>
+          </tr>
+        `;
+      }).join("");
     }
   </script>
 </body>
