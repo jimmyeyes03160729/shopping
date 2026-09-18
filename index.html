@@ -16,9 +16,15 @@
             使用 Gemini + Google Search 搜尋目前網路上的商品、規格與價格，不限制特定商城。
           </p>
         </div>
-        <span id="backendBadge" class="text-xs px-3 py-1.5 rounded-full bg-slate-100 text-slate-500">
-          檢查服務中…
-        </span>
+        <div class="flex flex-col sm:items-end gap-2">
+          <span id="backendBadge" class="text-xs px-3 py-1.5 rounded-full bg-slate-100 text-slate-500">
+            檢查服務中…
+          </span>
+          <div id="monthlyUsageBadge"
+               class="text-xs px-3 py-2 rounded-xl bg-slate-50 text-slate-600 border border-slate-200">
+            本月搜尋次數：0　/　預估 API 費用：US$0.0000
+          </div>
+        </div>
       </div>
     </header>
 
@@ -127,6 +133,7 @@
     document.getElementById("keywordInput").addEventListener("keydown", event => {
       if (event.key === "Enter") runSearch();
     });
+    renderMonthlyUsage();
     checkHealth();
   });
 
@@ -196,6 +203,11 @@
       const seconds = ((performance.now() - startedAt) / 1000).toFixed(1);
 
       lastData = data;
+
+      if (!data.cache_hit) {
+        recordMonthlyUsage(data.usage || {});
+      }
+
       allItems = Array.isArray(data.products)
         ? data.products
         : Array.isArray(data.items)
@@ -242,6 +254,70 @@
       button.disabled = false;
       button.textContent = "開始搜尋";
     }
+  }
+
+  function currentMonthKey() {
+    const now = new Date();
+    const yyyy = now.getFullYear();
+    const mm = String(now.getMonth() + 1).padStart(2, "0");
+    return `shopping_api_usage_${yyyy}-${mm}`;
+  }
+
+  function getMonthlyUsage() {
+    const empty = {
+      searches: 0,
+      input_tokens: 0,
+      output_tokens: 0,
+      thought_tokens: 0,
+      google_search_requests: 0,
+      estimated_token_cost_usd: 0
+    };
+
+    try {
+      const saved = JSON.parse(localStorage.getItem(currentMonthKey()) || "null");
+      return saved && typeof saved === "object" ? { ...empty, ...saved } : empty;
+    } catch {
+      return empty;
+    }
+  }
+
+  function recordMonthlyUsage(usage) {
+    const current = getMonthlyUsage();
+
+    current.searches += 1;
+    current.input_tokens += Number(usage.input_tokens || 0);
+    current.output_tokens += Number(usage.output_tokens || 0);
+    current.thought_tokens += Number(usage.thought_tokens || 0);
+    current.google_search_requests += Number(usage.google_search_requests || 0);
+    current.estimated_token_cost_usd += Number(usage.estimated_token_cost_usd || 0);
+
+    localStorage.setItem(currentMonthKey(), JSON.stringify(current));
+    renderMonthlyUsage();
+  }
+
+  function renderMonthlyUsage() {
+    const usage = getMonthlyUsage();
+
+    const freeGrounding = 5000;
+    const groundingUnitCost = 0.014;
+    const paidGroundingRequests = Math.max(
+      0,
+      Number(usage.google_search_requests || 0) - freeGrounding
+    );
+    const groundingCost = paidGroundingRequests * groundingUnitCost;
+    const estimatedTotal =
+      Number(usage.estimated_token_cost_usd || 0) + groundingCost;
+
+    const badge = document.getElementById("monthlyUsageBadge");
+    if (!badge) return;
+
+    badge.innerHTML =
+      `本月搜尋次數：<b>${Number(usage.searches || 0)}</b>　/　` +
+      `預估 API 費用：<b>US${estimatedTotal.toFixed(4)}</b>` +
+      `<div class="mt-1 text-[10px] text-slate-400">` +
+      `Google Search 要求：${Number(usage.google_search_requests || 0)} 次；` +
+      `本站本機估算，不含同一 Gemini 專案在其他程式的用量` +
+      `</div>`;
   }
 
   function renderSummary(data, seconds) {
