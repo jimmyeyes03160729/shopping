@@ -1,4 +1,6 @@
 const JSON_HEADERS = { "content-type": "application/json; charset=utf-8" };
+const SEARCH_CACHE = new Map();
+const SEARCH_CACHE_TTL_MS = 10 * 60 * 1000;
 
 const SOURCE_LABELS = {
   pchome: "PChome 24h",
@@ -17,8 +19,8 @@ export default {
       return json({
         ok: true,
         gemini: Boolean(env.GEMINI_API_KEY),
-        model: env.GEMINI_MODEL || "gemini-3.8-flash",
-        fallback_models: ["gemini-3.7-flash", "gemini-3.6-flash", "gemini-3.5-flash-lite"],
+        model: env.GEMINI_MODEL || "gemini-3.5-flash-lite",
+        fallback_models: ["gemini-3.8-flash", "gemini-3.7-flash", "gemini-3.6-flash"],
       });
     }
 
@@ -46,6 +48,12 @@ async function handleSearch(request, env) {
     if (!requestedSources.length) return json({ error: "至少選擇一個商城" }, 400);
     if (!env.GEMINI_API_KEY) return json({ error: "後端尚未設定 GEMINI_API_KEY" }, 500);
 
+    const cacheKey = makeCacheKey(keyword, requestedSources);
+    const cached = SEARCH_CACHE.get(cacheKey);
+    if (cached && Date.now() - cached.savedAt < SEARCH_CACHE_TTL_MS) {
+      return json({ ...cached.payload, cache_hit: true });
+    }
+
     const jobs = requestedSources.map(async (source) => {
       try {
         const items =
@@ -65,7 +73,7 @@ async function handleSearch(request, env) {
 
     rawItems = dedupeRawItems(rawItems)
       .filter((x) => Number.isFinite(x.price) && x.price > 0 && x.title)
-      .slice(0, 72);
+      .slice(0, 36);
 
     if (!rawItems.length) {
       return json({
@@ -101,13 +109,17 @@ async function handleSearch(request, env) {
 
     const dimensions = buildDimensions(items);
 
-    return json({
+    const payload = {
       keyword,
       items,
       dimensions,
       sources: sourceResults.map(sourceStatus),
       updated_at: new Date().toISOString(),
-    });
+      cache_hit: false,
+    };
+    SEARCH_CACHE.set(cacheKey, { savedAt: Date.now(), payload });
+    cleanupSearchCache();
+    return json(payload);
   } catch (error) {
     return json({ error: cleanError(error) }, 500);
   }
@@ -120,6 +132,10 @@ function sourceStatus(result) {
     ok: result.ok,
     count: result.items.length,
     error: result.ok ? null : result.error,
+    manual_url:
+      result.source === "shopee"
+        ? "https://shopee.tw/search?keyword={keyword}"
+        : null,
   };
 }
 
@@ -137,7 +153,7 @@ async function searchPchome(keyword) {
   const data = await response.json();
   const products = Array.isArray(data.prods) ? data.prods : [];
 
-  return products.slice(0, 24).map((p, index) => {
+  return products.slice(0, 12).map((p, index) => {
     const productId = String(p.Id || p.id || "");
     return {
       id: `pchome-${productId || index}`,
@@ -177,7 +193,7 @@ async function searchMomo(keyword) {
   const data = await response.json();
   const products = data?.rtnSearchData?.goodsInfoList || [];
 
-  return products.slice(0, 24).map((p, index) => {
+  return products.slice(0, 12).map((p, index) => {
     const code = String(
       p.goodsCode || p.goodsNo || p.i_code || p.goodsId || p.goodsID || ""
     );
@@ -221,7 +237,7 @@ async function searchShopee(keyword) {
       ? data.data.items
       : [];
 
-  return rows.slice(0, 24).map((row, index) => {
+  return rows.slice(0, 12).map((row, index) => {
     const p = row.item_basic || row;
     const itemId = String(p.itemid || p.item_id || "");
     const shopId = String(p.shopid || p.shop_id || "");
@@ -243,12 +259,12 @@ async function searchShopee(keyword) {
 }
 
 async function normalizeSpecsWithGemini(keyword, rawItems, env) {
-  const primaryModel = env.GEMINI_MODEL || "gemini-3.8-flash";
+  const primaryModel = env.GEMINI_MODEL || "gemini-3.5-flash-lite";
   const modelCandidates = [
     primaryModel,
+    "gemini-3.8-flash",
     "gemini-3.7-flash",
     "gemini-3.6-flash",
-    "gemini-3.5-flash-lite",
   ].filter((model, index, arr) => model && arr.indexOf(model) === index);
 
   const prompt = [
@@ -274,7 +290,7 @@ async function normalizeSpecsWithGemini(keyword, rawItems, env) {
   let lastError = null;
 
   for (const model of modelCandidates) {
-    for (let attempt = 1; attempt <= 2; attempt++) {
+    for (let attempt = 1; attempt <= 1; attempt++) {
       let response;
       try {
         response = await fetch(
@@ -295,10 +311,6 @@ async function normalizeSpecsWithGemini(keyword, rawItems, env) {
         );
       } catch (error) {
         lastError = new Error(`Gemini ${model} network error: ${cleanError(error)}`);
-        if (attempt < 2) {
-          await sleep(900 * attempt);
-          continue;
-        }
         break;
       }
 
@@ -333,12 +345,7 @@ async function normalizeSpecsWithGemini(keyword, rawItems, env) {
       );
 
       const retryable = [429, 500, 502, 503, 504].includes(response.status);
-      if (retryable && attempt < 2) {
-        await sleep(1200 * attempt);
-        continue;
-      }
-
-      // 429/5xx：換下一個備援模型；404 等也換下一個，避免單一模型失效拖垮搜尋。
+      // 429/5xx 直接換下一個備援模型，避免等待重試拖慢整體搜尋。
       break;
     }
   }
@@ -434,6 +441,23 @@ function browserHeaders(referer) {
     "user-agent":
       "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36",
   };
+}
+
+function makeCacheKey(keyword, sources) {
+  return String(keyword).trim().toLowerCase() + "|" + [...sources].sort().join(",");
+}
+
+function cleanupSearchCache() {
+  const now = Date.now();
+  for (const [key, entry] of SEARCH_CACHE.entries()) {
+    if (now - entry.savedAt > SEARCH_CACHE_TTL_MS) SEARCH_CACHE.delete(key);
+  }
+  if (SEARCH_CACHE.size > 80) {
+    const oldest = [...SEARCH_CACHE.entries()]
+      .sort((a, b) => a[1].savedAt - b[1].savedAt)
+      .slice(0, SEARCH_CACHE.size - 80);
+    for (const [key] of oldest) SEARCH_CACHE.delete(key);
+  }
 }
 
 function cleanError(error) {
