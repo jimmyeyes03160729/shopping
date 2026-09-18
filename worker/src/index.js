@@ -617,14 +617,15 @@ async function normalizeSpecsWithGemini(keyword, rawItems, env) {
 }
 
 function fallbackNormalize(keyword, rawItems) {
-  return rawItems
-    .filter((item) => isLikelyRelevantTitle(item.title, keyword))
-    .map((item) => ({
-      id: item.id,
-      match: true,
-      canonical_name: item.title,
-      specs: extractLocalSpecs(item.title),
-    }));
+  const matched = rawItems.filter((item) => isLikelyRelevantTitle(item.title, keyword));
+  const candidates = matched.length ? matched : rawItems;
+
+  return candidates.map((item) => ({
+    id: item.id,
+    match: true,
+    canonical_name: item.title,
+    specs: extractLocalSpecs(item.title),
+  }));
 }
 
 function extractLocalSpecs(title) {
