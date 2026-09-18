@@ -17,7 +17,7 @@ export default {
       return json({
         ok: true,
         gemini: Boolean(env.GEMINI_API_KEY),
-        model: env.GEMINI_MODEL || "gemini-2.5-flash",
+        model: env.GEMINI_MODEL || "gemini-3.6-flash",
       });
     }
 
@@ -242,7 +242,7 @@ async function searchShopee(keyword) {
 }
 
 async function normalizeSpecsWithGemini(keyword, rawItems, env) {
-  const model = env.GEMINI_MODEL || "gemini-2.5-flash";
+  const model = env.GEMINI_MODEL || "gemini-3.6-flash";
   const prompt = [
     "你是商品規格正規化引擎。你不能提供、猜測或修改價格與網址。",
     `使用者搜尋主商品：「${keyword}」`,
