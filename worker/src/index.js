@@ -1,7 +1,11 @@
 const JSON_HEADERS = { "content-type": "application/json; charset=utf-8" };
 const SEARCH_CACHE = new Map();
 const SEARCH_CACHE_TTL_MS = 10 * 60 * 1000;
-const REQUEST_TIMEOUT_MS = 25000;
+const REQUEST_TIMEOUT_MS = 45000;
+const INPUT_USD_PER_MILLION_TOKENS = 0.75;
+const OUTPUT_USD_PER_MILLION_TOKENS = 3.75;
+const MONTHLY_FREE_GOOGLE_SEARCH_REQUESTS = 5000;
+const GOOGLE_SEARCH_USD_PER_REQUEST_AFTER_FREE = 0.014;
 
 const PRODUCT_SCHEMA = {
   type: "object",
@@ -94,6 +98,7 @@ async function handleSearch(request, env) {
     const interaction = await runGroundedShoppingSearch(keyword, env);
     const parsed = parseModelJson(extractOutputText(interaction));
     const searchMeta = extractSearchMetadata(interaction);
+    const usage = extractUsage(interaction, searchMeta);
 
     const verifiedProducts = verifyAndNormalizeProducts(
       parsed?.products || [],
@@ -116,7 +121,8 @@ async function handleSearch(request, env) {
       updated_at: new Date().toISOString(),
       cache_hit: false,
       model: interaction._model_used || env.GEMINI_MODEL || "gemini-3.6-flash",
-      mode: "google-search-grounding"
+      mode: "google-search-grounding",
+      usage
     };
 
     SEARCH_CACHE.set(cacheKey, { savedAt: Date.now(), payload });
@@ -387,6 +393,53 @@ function sanitizeSpecs(specs) {
   }
 
   return out;
+}
+
+function extractUsage(interaction, searchMeta) {
+  const usage =
+    interaction?.usage ||
+    interaction?.metadata?.total_usage ||
+    {};
+
+  const inputTokens = Number(usage.total_input_tokens || 0);
+  const outputTokens = Number(usage.total_output_tokens || 0);
+  const thoughtTokens = Number(usage.total_thought_tokens || 0);
+  const totalTokens = Number(usage.total_tokens || 0);
+
+  let groundingRequests = 0;
+  if (Array.isArray(usage.grounding_tool_count)) {
+    for (const item of usage.grounding_tool_count) {
+      if (String(item?.type || "").toLowerCase() === "google_search") {
+        groundingRequests += Number(item?.count || 0);
+      }
+    }
+  }
+
+  // 某些回應可能未填 grounding_tool_count，搜尋步驟可作為保守備援。
+  groundingRequests = Math.max(
+    groundingRequests,
+    Array.isArray(searchMeta?.queries) ? searchMeta.queries.length : 0
+  );
+
+  const estimatedTokenCostUsd =
+    (inputTokens / 1_000_000) * INPUT_USD_PER_MILLION_TOKENS +
+    ((outputTokens + thoughtTokens) / 1_000_000) * OUTPUT_USD_PER_MILLION_TOKENS;
+
+  return {
+    input_tokens: inputTokens,
+    output_tokens: outputTokens,
+    thought_tokens: thoughtTokens,
+    total_tokens: totalTokens,
+    google_search_requests: groundingRequests,
+    estimated_token_cost_usd: Number(estimatedTokenCostUsd.toFixed(8)),
+    pricing: {
+      input_usd_per_million_tokens: INPUT_USD_PER_MILLION_TOKENS,
+      output_usd_per_million_tokens: OUTPUT_USD_PER_MILLION_TOKENS,
+      monthly_free_google_search_requests: MONTHLY_FREE_GOOGLE_SEARCH_REQUESTS,
+      google_search_usd_per_request_after_free:
+        GOOGLE_SEARCH_USD_PER_REQUEST_AFTER_FREE
+    }
+  };
 }
 
 function buildDimensions(products) {
