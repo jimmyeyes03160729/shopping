@@ -1,0 +1,36 @@
+{
+  "keyword": "iPhone 15 128G",
+  "updated_at": "2026-09-18 10:06:51",
+  "items": [
+    {
+      "store_name": "PChome 24h購物",
+      "canonical_name": "Apple iPhone 15 128G",
+      "price": 25900.0,
+      "currency": "TWD",
+      "matched_group_id": "iphone-15-128gb",
+      "key_specs": "128GB / 6.1吋 / A16 仿生晶片",
+      "url": "https://24h.pchome.com.tw",
+      "is_target_match": true
+    },
+    {
+      "store_name": "momo購物網",
+      "canonical_name": "Apple iPhone 15 128GB",
+      "price": 25788.0,
+      "currency": "TWD",
+      "matched_group_id": "iphone-15-128gb",
+      "key_specs": "128GB / 6.1吋 / A16 仿生晶片",
+      "url": "https://www.momo.com.tw",
+      "is_target_match": true
+    },
+    {
+      "store_name": "蝦皮購物",
+      "canonical_name": "Apple iPhone 15 128G 官方旗艦店現貨",
+      "price": 25500.0,
+      "currency": "TWD",
+      "matched_group_id": "iphone-15-128gb",
+      "key_specs": "128GB / 6.1吋 / A16 仿生晶片",
+      "url": "https://shopee.tw",
+      "is_target_match": true
+    }
+  ]
+}
