@@ -66,7 +66,8 @@ export default {
         ok: true,
         gemini: Boolean(env.GEMINI_API_KEY),
         mode: "generate-content-google-search-grounding",
-        model: env.GEMINI_MODEL || "gemini-3.6-flash"
+        model: env.GEMINI_MODEL || "gemini-3.6-flash",
+        build: "2026-09-19-plain-json-v2"
       });
     }
 
@@ -247,26 +248,27 @@ async function runProductStructuring(keyword, grounded, model, apiKey) {
     "下面是可使用的來源清單：",
     JSON.stringify(sourceRows),
     "",
+    "請只輸出一個合法 JSON object，不要 Markdown、不要程式碼區塊、不要任何額外文字。",
+    "JSON 格式固定為：",
+    '{"query":"字串","summary":"字串","products":[{"source_id":"S1","store":"賣場","title":"商品名稱","price":123,"currency":"TWD","unit_price_text":"","specs":[{"label":"規格名","value":"規格值"}]}]}',
+    "",
     "規則：",
     "1. 只整理 grounded 文字中確實出現、且有明確價格的商品。",
     "2. 每筆商品的 source_id 必須從上面來源清單挑一個，不能自創。",
-    "3. source_id 應選擇其 evidence 或標題最能支持該商品與價格的來源。",
+    "3. source_id 應選擇 evidence 或標題最能支持該商品與價格的來源。",
     "4. 不確定來源對應時，該商品不要輸出。",
     "5. 排除二手、配件、新聞、論壇與不同主商品。",
     "6. specs 依商品種類動態整理，例如衛生紙：層數/抽數/包數；手機：容量/顏色。",
     "7. unit_price_text 無法可靠計算就填空字串。",
     "8. 台灣價格 currency 填 TWD。",
-    "9. 不要把搜尋摘要中的估價或價格區間當成單一商品價格。",
-    "10. 只回傳 JSON，不要 Markdown，不要 ```。",
-    "",
-    "請依 schema 回傳 JSON。"
+    "9. price 必須是純數字，不要放 NT$、逗號或文字。",
+    "10. 不要把價格區間或估價當成單一商品價格。"
   ].join("\n");
 
   const endpoint =
     `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
 
-  // GenerateContent 的相容 structured-output 格式。
-  let response = await fetchWithTimeout(
+  const response = await fetchWithTimeout(
     endpoint,
     {
       method: "POST",
@@ -277,49 +279,14 @@ async function runProductStructuring(keyword, grounded, model, apiKey) {
       body: JSON.stringify({
         contents: [{ parts: [{ text: prompt }] }],
         generationConfig: {
-          responseMimeType: "application/json",
-          responseSchema: PRODUCT_SCHEMA
+          temperature: 0.1
         }
       })
     },
     STRUCTURE_TIMEOUT_MS
   );
 
-  let text = await response.text();
-
-  // 某些新模型 / API revision 對 GenerateContent structured-output 欄位
-  // 仍可能回 400。這時改用純 JSON prompt，不中斷整次搜尋。
-  if (
-    response.status === 400 &&
-    /response.?mime|response.?schema|response.?format|mime.?type|invalid argument/i.test(text)
-  ) {
-    response = await fetchWithTimeout(
-      endpoint,
-      {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "x-goog-api-key": apiKey
-        },
-        body: JSON.stringify({
-          contents: [{
-            parts: [{
-              text:
-                prompt +
-                "\n\n請嚴格輸出單一 JSON object，格式必須包含 query、summary、products；" +
-                "products 每筆包含 source_id、store、title、price、currency、unit_price_text、specs。"
-            }]
-          }],
-          generationConfig: {
-            temperature: 0.1
-          }
-        })
-      },
-      STRUCTURE_TIMEOUT_MS
-    );
-
-    text = await response.text();
-  }
+  const text = await response.text();
 
   if (!response.ok) {
     throwFriendlyGeminiError(response.status, text);
