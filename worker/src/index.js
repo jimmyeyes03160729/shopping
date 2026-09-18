@@ -17,7 +17,8 @@ export default {
       return json({
         ok: true,
         gemini: Boolean(env.GEMINI_API_KEY),
-        model: env.GEMINI_MODEL || "gemini-3.6-flash",
+        model: env.GEMINI_MODEL || "gemini-3.8-flash",
+        fallback_models: ["gemini-3.7-flash", "gemini-3.6-flash", "gemini-3.5-flash-lite"],
       });
     }
 
@@ -242,7 +243,14 @@ async function searchShopee(keyword) {
 }
 
 async function normalizeSpecsWithGemini(keyword, rawItems, env) {
-  const model = env.GEMINI_MODEL || "gemini-3.6-flash";
+  const primaryModel = env.GEMINI_MODEL || "gemini-3.8-flash";
+  const modelCandidates = [
+    primaryModel,
+    "gemini-3.7-flash",
+    "gemini-3.6-flash",
+    "gemini-3.5-flash-lite",
+  ].filter((model, index, arr) => model && arr.indexOf(model) === index);
+
   const prompt = [
     "你是商品規格正規化引擎。你不能提供、猜測或修改價格與網址。",
     `使用者搜尋主商品：「${keyword}」`,
@@ -263,43 +271,83 @@ async function normalizeSpecsWithGemini(keyword, rawItems, env) {
     ),
   ].join("\n");
 
-  const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
-    {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-goog-api-key": env.GEMINI_API_KEY,
-      },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: {
-          responseMimeType: "application/json",
-          temperature: 0.1,
-        },
-      }),
+  let lastError = null;
+
+  for (const model of modelCandidates) {
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      let response;
+      try {
+        response = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
+          {
+            method: "POST",
+            headers: {
+              "content-type": "application/json",
+              "x-goog-api-key": env.GEMINI_API_KEY,
+            },
+            body: JSON.stringify({
+              contents: [{ parts: [{ text: prompt }] }],
+              generationConfig: {
+                responseMimeType: "application/json",
+              },
+            }),
+          }
+        );
+      } catch (error) {
+        lastError = new Error(`Gemini ${model} network error: ${cleanError(error)}`);
+        if (attempt < 2) {
+          await sleep(900 * attempt);
+          continue;
+        }
+        break;
+      }
+
+      if (response.ok) {
+        const data = await response.json();
+        const text =
+          data?.candidates?.[0]?.content?.parts?.map((p) => p.text || "").join("") || "";
+
+        if (!text) {
+          lastError = new Error(`Gemini ${model} 沒有回傳規格分析結果`);
+          break;
+        }
+
+        let parsed;
+        try {
+          parsed = JSON.parse(text);
+        } catch {
+          const match = text.match(/\{[\s\S]*\}/);
+          if (!match) {
+            lastError = new Error(`Gemini ${model} 回傳不是有效 JSON`);
+            break;
+          }
+          parsed = JSON.parse(match[0]);
+        }
+
+        return Array.isArray(parsed?.items) ? parsed.items : [];
+      }
+
+      const detail = await response.text();
+      lastError = new Error(
+        `Gemini ${model} HTTP ${response.status}: ${detail.slice(0, 180)}`
+      );
+
+      const retryable = [429, 500, 502, 503, 504].includes(response.status);
+      if (retryable && attempt < 2) {
+        await sleep(1200 * attempt);
+        continue;
+      }
+
+      // 429/5xx：換下一個備援模型；404 等也換下一個，避免單一模型失效拖垮搜尋。
+      break;
     }
-  );
-
-  if (!response.ok) {
-    const detail = await response.text();
-    throw new Error(`Gemini HTTP ${response.status}: ${detail.slice(0, 180)}`);
   }
 
-  const data = await response.json();
-  const text = data?.candidates?.[0]?.content?.parts?.map((p) => p.text || "").join("") || "";
-  if (!text) throw new Error("Gemini 沒有回傳規格分析結果");
+  throw lastError || new Error("所有 Gemini 備援模型皆無法使用");
+}
 
-  let parsed;
-  try {
-    parsed = JSON.parse(text);
-  } catch {
-    const match = text.match(/\{[\s\S]*\}/);
-    if (!match) throw new Error("Gemini 回傳不是有效 JSON");
-    parsed = JSON.parse(match[0]);
-  }
-
-  return Array.isArray(parsed?.items) ? parsed.items : [];
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function buildDimensions(items) {
