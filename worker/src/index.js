@@ -257,12 +257,17 @@ async function runProductStructuring(keyword, grounded, model, apiKey) {
     "7. unit_price_text 無法可靠計算就填空字串。",
     "8. 台灣價格 currency 填 TWD。",
     "9. 不要把搜尋摘要中的估價或價格區間當成單一商品價格。",
+    "10. 只回傳 JSON，不要 Markdown，不要 ```。",
     "",
     "請依 schema 回傳 JSON。"
   ].join("\n");
 
-  const response = await fetchWithTimeout(
-    `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
+  const endpoint =
+    `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
+
+  // GenerateContent 的相容 structured-output 格式。
+  let response = await fetchWithTimeout(
+    endpoint,
     {
       method: "POST",
       headers: {
@@ -272,19 +277,49 @@ async function runProductStructuring(keyword, grounded, model, apiKey) {
       body: JSON.stringify({
         contents: [{ parts: [{ text: prompt }] }],
         generationConfig: {
-          responseFormat: {
-            text: {
-              mimeType: "application/json",
-              schema: PRODUCT_SCHEMA
-            }
-          }
+          responseMimeType: "application/json",
+          responseSchema: PRODUCT_SCHEMA
         }
       })
     },
     STRUCTURE_TIMEOUT_MS
   );
 
-  const text = await response.text();
+  let text = await response.text();
+
+  // 某些新模型 / API revision 對 GenerateContent structured-output 欄位
+  // 仍可能回 400。這時改用純 JSON prompt，不中斷整次搜尋。
+  if (
+    response.status === 400 &&
+    /response.?mime|response.?schema|response.?format|mime.?type|invalid argument/i.test(text)
+  ) {
+    response = await fetchWithTimeout(
+      endpoint,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-goog-api-key": apiKey
+        },
+        body: JSON.stringify({
+          contents: [{
+            parts: [{
+              text:
+                prompt +
+                "\n\n請嚴格輸出單一 JSON object，格式必須包含 query、summary、products；" +
+                "products 每筆包含 source_id、store、title、price、currency、unit_price_text、specs。"
+            }]
+          }],
+          generationConfig: {
+            temperature: 0.1
+          }
+        })
+      },
+      STRUCTURE_TIMEOUT_MS
+    );
+
+    text = await response.text();
+  }
 
   if (!response.ok) {
     throwFriendlyGeminiError(response.status, text);
