@@ -228,10 +228,11 @@
         document.getElementById("filterSection").classList.add("hidden");
         document.getElementById("resultSection").classList.add("hidden");
 
+        const v = data.verification || {};
         showStatus(
           data.source_count
-            ? "Google Search 有找到相關來源，但沒有找到同時具備可驗證商品名稱、價格與來源網址的商品。"
-            : "這次 Google Search 沒有找到可驗證的商品價格。",
+            ? `Google Search 找到 ${data.source_count} 個引用來源、${Number(v.candidate_products || 0)} 筆候選商品，但目前沒有商品通過價格與來源驗證。`
+            : "這次 Google Search 沒有回傳可用的引用來源，因此無法顯示可驗證價格。",
           "warn"
         );
         return;
@@ -324,8 +325,14 @@
     document.getElementById("summaryText").textContent =
       data.summary || "已依 Google Search 搜尋結果整理目前可驗證的商品與價格。";
 
+    const v = data.verification || {};
+    const verificationText =
+      Number.isFinite(Number(v.candidate_products))
+        ? ` · ${Number(v.verified_products || 0)}/${Number(v.candidate_products || 0)} 筆通過驗證`
+        : "";
+
     document.getElementById("metaText").textContent =
-      `${data.model || "Gemini"} · ${data.source_count || 0} 個來源 · ${seconds} 秒`;
+      `${data.model || "Gemini"} · ${data.source_count || 0} 個來源${verificationText} · ${seconds} 秒`;
   }
 
   function renderFilters() {
