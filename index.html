@@ -209,9 +209,13 @@
         document.getElementById("filterSection").classList.toggle("hidden", dimensions.length === 0);
         document.getElementById("resultSection").classList.remove("hidden");
         showStatus(
-          `找到 ${allItems.length} 筆符合主商品的結果，可再選擇規格。${data.cache_hit ? "（使用快取）" : ""}`,
+          `找到 ${allItems.length} 筆結果，價格已先顯示。${data.cache_hit ? "（使用快取）" : ""}${data.specs_pending ? " AI 正在背景整理規格…" : ""}`,
           "ok"
         );
+
+        if (data.specs_pending) {
+          enrichSpecsInBackground(keyword, allItems);
+        }
       }
     } catch (err) {
       allItems = [];
@@ -223,6 +227,87 @@
       btn.disabled = false;
       btn.textContent = "開始搜尋";
     }
+  }
+
+  async function enrichSpecsInBackground(keyword, items) {
+    try {
+      const res = await fetch(API_BASE_URL + "/api/enrich", {
+        method: "POST",
+        headers: {"Content-Type":"application/json"},
+        body: JSON.stringify({
+          keyword,
+          items: items.map(item => ({
+            id: item.id,
+            store_id: item.store_id,
+            store_name: item.store_name,
+            title: item.title,
+            price: item.price,
+            url: item.url
+          }))
+        })
+      });
+
+      const text = await res.text();
+      if (!res.ok) return;
+
+      let data;
+      try {
+        data = JSON.parse(text);
+      } catch {
+        return;
+      }
+
+      const enrichments = Array.isArray(data.items) ? data.items : [];
+      if (!enrichments.length) return;
+
+      const map = new Map(enrichments.map(x => [String(x.id), x]));
+      allItems = allItems
+        .map(item => {
+          const ai = map.get(String(item.id));
+          if (!ai) return item;
+          if (ai.match === false) return null;
+          return {
+            ...item,
+            canonical_name: ai.canonical_name || item.canonical_name || item.title,
+            specs: ai.specs || item.specs || {}
+          };
+        })
+        .filter(Boolean);
+
+      dimensions = buildDimensionsFromItems(allItems);
+      renderFilters();
+      renderResults();
+      showStatus(`找到 ${allItems.length} 筆結果，AI 規格整理完成。`, "ok");
+    } catch {
+      // 背景 AI 失敗時保留已經顯示的價格，不中斷使用。
+    }
+  }
+
+  function buildDimensionsFromItems(items) {
+    const map = new Map();
+    for (const item of items) {
+      for (const [key, value] of Object.entries(item.specs || {})) {
+        if (!value) continue;
+        if (!map.has(key)) map.set(key, new Set());
+        map.get(key).add(String(value));
+      }
+    }
+
+    const preferred = ["容量","儲存空間","顏色","尺寸","版本","記憶體","連線版本"];
+    return [...map.entries()]
+      .map(([key, values]) => ({
+        key,
+        label: key,
+        values: [...values].sort((a,b) => String(a).localeCompare(String(b), "zh-Hant", {numeric:true}))
+      }))
+      .sort((a,b) => {
+        const ai = preferred.indexOf(a.key);
+        const bi = preferred.indexOf(b.key);
+        if (ai === -1 && bi === -1) return a.key.localeCompare(b.key, "zh-Hant");
+        if (ai === -1) return 1;
+        if (bi === -1) return -1;
+        return ai - bi;
+      });
   }
 
   function renderFilters() {
