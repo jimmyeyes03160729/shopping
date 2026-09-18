@@ -3,91 +3,52 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>AI 跨商城智慧比價系統</title>
+  <title>我的個人 AI 比價系統</title>
   <script src="https://cdn.tailwindcss.com"></script>
 </head>
-<body class="bg-gray-50 text-gray-800 min-h-screen p-4 sm:p-8">
-  <div class="max-w-5xl mx-auto space-y-6">
+<body class="bg-gray-50 text-gray-800 p-6 min-h-screen">
+  <div class="max-w-4xl mx-auto space-y-6">
     
-    <!-- 頁頭與 API Key 設定 -->
-    <header class="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-      <div>
-        <h1 class="text-2xl font-bold text-gray-900">🛍️ AI 跨商城規格比價系統</h1>
-        <p class="text-sm text-gray-500 mt-1">自訂商城自動儲存 + Gemini 智能規格分析與比價</p>
-      </div>
-      <div class="w-full sm:w-72">
-        <label class="block text-xs font-semibold text-gray-600 mb-1">Gemini API Key (儲存於本機)</label>
-        <input id="apiKeyInput" type="password" placeholder="貼上你的 API Key"
-          class="w-full text-xs px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
-      </div>
+    <header class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+      <h1 class="text-2xl font-bold text-gray-900">🛍️ 個人專屬 AI 比價看板</h1>
+      <p class="text-sm text-gray-500 mt-1">API Key 與自動排程由 GitHub 全自動託管，不需手動輸入金鑰</p>
     </header>
 
-    <!-- 商城管理區塊 -->
-    <section class="bg-white p-6 rounded-xl shadow-sm border border-gray-100 space-y-4">
-      <div class="flex flex-col sm:flex-row justify-between sm:items-center gap-2">
-        <div>
-          <h2 class="text-lg font-bold text-gray-800">🌐 購物商城清單管理</h2>
-          <span class="text-xs text-gray-400">網址必須包含 <code class="bg-gray-100 px-1 py-0.5 rounded text-red-500">{keyword}</code> 佔位符</span>
-        </div>
-        <div class="flex items-center gap-2">
-          <button onclick="exportStores()" class="text-xs bg-gray-100 hover:bg-gray-200 text-gray-700 font-medium px-3 py-1.5 rounded-lg transition">
-            📥 匯出配置 (JSON)
-          </button>
-          <label class="text-xs bg-gray-100 hover:bg-gray-200 text-gray-700 font-medium px-3 py-1.5 rounded-lg cursor-pointer transition">
-            📤 匯入配置 (JSON)
-            <input type="file" id="importInput" accept=".json" class="hidden" onchange="importStores(event)" />
-          </label>
-          <button onclick="resetDefaultStores()" class="text-xs text-gray-400 hover:text-red-500 underline ml-1">
-            重設預設
-          </button>
-        </div>
-      </div>
-
-      <!-- 新增商城表單 -->
-      <div class="grid grid-cols-1 sm:grid-cols-12 gap-2">
-        <input id="storeNameInput" type="text" placeholder="商城名稱 (例如: PChome 24h)"
-          class="sm:col-span-3 text-sm px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
-        <input id="storeUrlInput" type="text" placeholder="搜尋網址模板 (例如: https://ecshweb.pchome.com.tw/search/v3.3/all/results?q={keyword})"
-          class="sm:col-span-7 text-sm px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
-        <button onclick="addStore()"
-          class="sm:col-span-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition">
-          ＋ 新增商城
-        </button>
-      </div>
-
-      <!-- 商城列表 -->
-      <div id="storeList" class="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-2"></div>
-    </section>
-
-    <!-- 關鍵字搜尋與比價啟動 -->
-    <section class="bg-white p-6 rounded-xl shadow-sm border border-gray-100 space-y-4">
+    <!-- 官網清單區（只填首頁） -->
+    <section class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 space-y-3">
+      <h2 class="text-lg font-bold text-gray-800">🌐 追蹤的購物官網首頁</h2>
       <div class="flex gap-2">
-        <input id="keywordInput" type="text" placeholder="請輸入商品關鍵字 (例如: iPhone 15 128GB、Sony WH-1000XM5、iPad Air M2)"
-          class="flex-1 px-4 py-3 border rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-base" />
-        <button id="compareBtn" onclick="startComparison()"
-          class="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold px-6 py-3 rounded-xl transition flex items-center gap-2">
-          <span>開始比價</span>
+        <input id="storeUrlInput" type="text" placeholder="直接貼上官網首頁，例如: https://shopee.tw" 
+               class="flex-1 px-3 py-2 border rounded-xl text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+        <button onclick="addStore()" class="bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-4 py-2 rounded-xl transition">
+          新增首頁
         </button>
       </div>
-      <div id="statusText" class="text-sm text-gray-500 hidden font-medium"></div>
+      <div id="storeList" class="flex flex-wrap gap-2 pt-2"></div>
+      <p class="text-xs text-gray-400">提示：修改後的清單會在下次 GitHub 比價時使用。</p>
     </section>
 
-    <!-- 比價結果表格 -->
-    <section id="resultSection" class="bg-white p-6 rounded-xl shadow-sm border border-gray-100 hidden space-y-4">
+    <!-- 比價結果展示區 -->
+    <section class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 space-y-4">
       <div class="flex justify-between items-center">
-        <h2 class="text-lg font-bold text-gray-800">📊 比價結果清單</h2>
-        <span class="text-xs text-emerald-600 bg-emerald-50 border border-emerald-200 px-2 py-1 rounded">相同規格已歸納分組並由低至高排序</span>
+        <div>
+          <h2 class="text-lg font-bold text-gray-800">📊 最新比價結果</h2>
+          <p id="metaInfo" class="text-xs text-gray-400 mt-0.5">載入中...</p>
+        </div>
+        <button onclick="loadResults()" class="text-xs bg-gray-100 hover:bg-gray-200 px-3 py-1.5 rounded-lg">
+          🔄 重新載入
+        </button>
       </div>
+
       <div class="overflow-x-auto">
         <table class="min-w-full text-left text-sm divide-y divide-gray-200">
           <thead class="bg-gray-50">
             <tr>
-              <th class="px-4 py-3 font-semibold text-gray-700">規格分組 ID</th>
+              <th class="px-4 py-3 font-semibold text-gray-700">規格組別</th>
               <th class="px-4 py-3 font-semibold text-gray-700">商城</th>
-              <th class="px-4 py-3 font-semibold text-gray-700">商品標題</th>
+              <th class="px-4 py-3 font-semibold text-gray-700">商品名稱</th>
               <th class="px-4 py-3 font-semibold text-gray-700">價格</th>
-              <th class="px-4 py-3 font-semibold text-gray-700">核心規格參數</th>
-              <th class="px-4 py-3 font-semibold text-gray-700">連結</th>
+              <th class="px-4 py-3 font-semibold text-gray-700">規格說明</th>
             </tr>
           </thead>
           <tbody id="resultBody" class="divide-y divide-gray-100"></tbody>
@@ -98,225 +59,69 @@
   </div>
 
   <script>
-    const DEFAULT_STORES = [
-      { name: "PChome 24h", template: "https://ecshweb.pchome.com.tw/search/v3.3/all/results?q={keyword}" },
-      { name: "Momo 購物網", template: "https://www.momo.com.tw/search/searchShop.jsp?keyword={keyword}" },
-      { name: "Yahoo 購物中心", template: "https://tw.buy.yahoo.com/search/product?p={keyword}" }
+    let stores = JSON.parse(localStorage.getItem("my_simple_stores")) || [
+      "https://shopee.tw",
+      "https://24h.pchome.com.tw",
+      "https://www.momo.com.tw"
     ];
 
-    let stores = JSON.parse(localStorage.getItem("comparator_stores")) || DEFAULT_STORES;
-
     window.onload = () => {
-      const savedKey = localStorage.getItem("gemini_api_key") || "";
-      document.getElementById("apiKeyInput").value = savedKey;
       renderStores();
+      loadResults();
     };
-
-    document.getElementById("apiKeyInput").addEventListener("input", (e) => {
-      localStorage.setItem("gemini_api_key", e.target.value.trim());
-    });
-
-    function saveStores() {
-      localStorage.setItem("comparator_stores", JSON.stringify(stores));
-      renderStores();
-    }
 
     function renderStores() {
       const container = document.getElementById("storeList");
-      container.innerHTML = "";
-      stores.forEach((store, index) => {
-        const item = document.createElement("div");
-        item.className = "flex items-center justify-between p-2.5 bg-gray-50 rounded-lg border border-gray-200 text-sm";
-        item.innerHTML = `
-          <div class="truncate mr-2">
-            <span class="font-semibold text-gray-800">${escapeHtml(store.name)}</span>
-            <span class="text-xs text-gray-400 block truncate">${escapeHtml(store.template)}</span>
-          </div>
-          <button onclick="removeStore(${index})" class="text-red-500 hover:text-red-700 text-xs px-2 py-1 font-medium">刪除</button>
-        `;
-        container.appendChild(item);
-      });
+      container.innerHTML = stores.map((s, i) => `
+        <span class="inline-flex items-center gap-1.5 bg-gray-100 text-gray-700 px-3 py-1 rounded-full text-xs">
+          ${s}
+          <button onclick="removeStore(${i})" class="text-red-500 hover:text-red-700 font-bold ml-1">×</button>
+        </span>
+      `).join("");
+      localStorage.setItem("my_simple_stores", JSON.stringify(stores));
     }
 
     function addStore() {
-      const name = document.getElementById("storeNameInput").value.trim();
-      const template = document.getElementById("storeUrlInput").value.trim();
-      if (!name || !template || !template.includes("{keyword}")) {
-        alert("請輸入正確的商城名稱，並確認網址模板中含有 {keyword}！");
-        return;
+      const input = document.getElementById("storeUrlInput");
+      const val = input.value.trim();
+      if (val) {
+        stores.push(val.startsWith("http") ? val : "https://" + val);
+        input.value = "";
+        renderStores();
       }
-      stores.push({ name, template });
-      saveStores();
-      document.getElementById("storeNameInput").value = "";
-      document.getElementById("storeUrlInput").value = "";
     }
 
     function removeStore(index) {
       stores.splice(index, 1);
-      saveStores();
+      renderStores();
     }
 
-    function resetDefaultStores() {
-      if (confirm("確定要重設為預設商城清單嗎？目前的自訂清單將會被覆蓋。")) {
-        stores = [...DEFAULT_STORES];
-        saveStores();
-      }
-    }
-
-    function exportStores() {
-      const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(stores, null, 2));
-      const downloadAnchor = document.createElement("a");
-      downloadAnchor.setAttribute("href", dataStr);
-      downloadAnchor.setAttribute("download", "stores_config.json");
-      document.body.appendChild(downloadAnchor);
-      downloadAnchor.click();
-      downloadAnchor.remove();
-    }
-
-    function importStores(event) {
-      const fileReader = new FileReader();
-      fileReader.onload = function(e) {
-        try {
-          const imported = JSON.parse(e.target.result);
-          if (Array.isArray(imported)) {
-            stores = imported;
-            saveStores();
-            alert("商城清單匯入成功！");
-          } else {
-            alert("檔案格式錯誤，必須是商城的陣列列表。");
-          }
-        } catch (err) {
-          alert("無法解析上傳的 JSON 檔案：" + err.message);
-        }
-      };
-      if (event.target.files.length > 0) {
-        fileReader.readAsText(event.target.files[0]);
-      }
-    }
-
-    async function startComparison() {
-      const apiKey = document.getElementById("apiKeyInput").value.trim();
-      const keyword = document.getElementById("keywordInput").value.trim();
-      const statusText = document.getElementById("statusText");
-      const resultSection = document.getElementById("resultSection");
-      const resultBody = document.getElementById("resultBody");
-      const compareBtn = document.getElementById("compareBtn");
-
-      if (!apiKey) {
-        alert("請先在右上角輸入 Gemini API Key！");
-        return;
-      }
-      if (!keyword) {
-        alert("請輸入要比價的商品關鍵字！");
-        return;
-      }
-      if (stores.length === 0) {
-        alert("請至少新增一個商城網址！");
-        return;
-      }
-
-      compareBtn.disabled = true;
-      statusText.classList.remove("hidden");
-      statusText.innerText = "⏳ 正在處理中... 準備分析目標網站資料...";
-      resultSection.classList.add("hidden");
-      resultBody.innerHTML = "";
-
-      const storeLinks = stores.map(s => ({
-        store_name: s.name,
-        target_url: s.template.replace("{keyword}", encodeURIComponent(keyword))
-      }));
-
-      const prompt = `
-你是一位專業的商品規格分析與比價引擎。
-使用者欲搜尋的比價關鍵字為：「${keyword}」。
-
-以下是目標商城的搜尋連結配置：
-${JSON.stringify(storeLinks, null, 2)}
-
-任務說明：
-1. 根據該關鍵字，模擬提取或分析這幾個商城中與關鍵字最符合的前 1~2 項主力商品。
-2. 提取出價格數值（去除貨幣符號、千分位逗點，只保留浮點數或整數）。
-3. 提取詳細規格（例如容量、RAM、尺寸、版本型號）。
-4. 重要步驟：將「實質規格完全相同」的商品歸納為同一個 "matched_group_id"（例如 "iphone-15-128g" 或 "sony-wh1000xm5"）。
-5. 排除不相關配件（例如買手機卻搜尋出保護貼或手機殼）。
-
-請嚴格遵循以下 JSON Schema 回傳資料：
-[
-  {
-    "store_name": "商城名稱",
-    "product_name": "規格標準化後的商品名稱",
-    "price": 27900,
-    "currency": "TWD",
-    "matched_group_id": "同款規格ID",
-    "specs": "規格描述(如: 128GB / A16 晶片)",
-    "url": "該商品或搜尋結果連結"
-  }
-]
-`;
-
+    async function loadResults() {
+      const meta = document.getElementById("metaInfo");
+      const body = document.getElementById("resultBody");
       try {
-        statusText.innerText = "🤖 正在調用 Gemini API (gemini-3.6-flash) 進行智能規格比對...";
+        const res = await fetch('result.json?t=' + new Date().getTime());
+        if (!res.ok) throw new Error("尚未產生比價結果，請先在 GitHub Actions 執行比價。");
+        const data = await res.json();
         
-        // 更新為 gemini-3.6-flash
-        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${apiKey}`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            contents: [{ parts: [{ text: prompt }] }],
-            generationConfig: {
-              response_mime_type: "application/json"
-            }
-          })
-        });
-
-        const data = await response.json();
-        if (data.error) throw new Error(data.error.message);
-
-        const replyText = data.candidates[0].content.parts[0].text;
-        const products = JSON.parse(replyText);
-
-        if (!Array.isArray(products) || products.length === 0) {
-          statusText.innerText = "ℹ️ 未能比對到相關商品規格。";
-          return;
-        }
-
-        products.sort((a, b) => {
-          if (a.matched_group_id === b.matched_group_id) {
-            return a.price - b.price;
-          }
-          return a.matched_group_id.localeCompare(b.matched_group_id);
-        });
-
-        resultBody.innerHTML = products.map(p => `
-          <tr class="hover:bg-gray-50 transition">
-            <td class="px-4 py-3 font-mono text-xs text-blue-600 font-semibold">${escapeHtml(p.matched_group_id)}</td>
-            <td class="px-4 py-3 font-medium text-gray-900">${escapeHtml(p.store_name)}</td>
-            <td class="px-4 py-3">${escapeHtml(p.product_name)}</td>
-            <td class="px-4 py-3 font-bold text-emerald-600">${escapeHtml(p.currency)} ${Number(p.price).toLocaleString()}</td>
-            <td class="px-4 py-3 text-xs text-gray-500">${escapeHtml(p.specs || '-')}</td>
-            <td class="px-4 py-3 text-xs">
-              <a href="${p.url}" target="_blank" rel="noopener noreferrer" class="text-blue-500 hover:underline">前往商城</a>
-            </td>
+        meta.innerText = `搜尋關鍵字：${data.keyword} | 更新時間：${data.updated_at}`;
+        
+        // 排序：同規格一組，價格由低到高
+        data.items.sort((a, b) => a.matched_group_id.localeCompare(b.matched_group_id) || a.price - b.price);
+        
+        body.innerHTML = data.items.map(p => `
+          <tr class="hover:bg-gray-50">
+            <td class="px-4 py-3 font-mono text-xs text-blue-600 font-semibold">${p.matched_group_id}</td>
+            <td class="px-4 py-3 font-medium text-gray-900">${p.store_name}</td>
+            <td class="px-4 py-3">${p.canonical_name}</td>
+            <td class="px-4 py-3 font-bold text-emerald-600">NT$ ${p.price.toLocaleString()}</td>
+            <td class="px-4 py-3 text-xs text-gray-500">${p.key_specs}</td>
           </tr>
         `).join("");
-
-        statusText.classList.add("hidden");
-        resultSection.classList.remove("hidden");
       } catch (err) {
-        statusText.innerText = `❌ 發生錯誤：${err.message}`;
-      } finally {
-        compareBtn.disabled = false;
+        meta.innerText = err.message;
+        body.innerHTML = `<tr><td colspan="5" class="px-4 py-6 text-center text-gray-400 text-xs">${err.message}</td></tr>`;
       }
-    }
-
-    function escapeHtml(str) {
-      if (!str) return "";
-      return String(str)
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;")
-        .replace(/'/g, "&#039;");
     }
   </script>
 </body>
