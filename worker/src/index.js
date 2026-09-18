@@ -35,7 +35,7 @@ const STORE_CONFIGS = {
   costco: {
     name: "Costco 好市多線上購物",
     homepage: "https://www.costco.com.tw/",
-    search: "https://www.costco.com.tw/search/?text={keyword}",
+    search: "https://www.costco.com.tw/s?keyword={keyword}",
   },
   uniqlo: {
     name: "UNIQLO 台灣網路商店",
@@ -264,6 +264,11 @@ function sourceStatus(result, keyword) {
 async function searchStore(source, keyword) {
   if (source === "pchome") return searchPchome(keyword);
   if (source === "momo") return searchMomo(keyword);
+  if (source === "costco") return searchCostco(keyword);
+  if (source === "yahoo") return searchYahoo(keyword);
+  if (source === "coupang") return searchCoupang(keyword);
+  if (source === "carrefour") return searchCarrefour(keyword);
+  if (source === "tk3c") return searchTk3c(keyword);
   if (source === "shopee") {
     try {
       return await searchShopee(keyword);
@@ -272,6 +277,103 @@ async function searchStore(source, keyword) {
     }
   }
   return searchGenericStore(source, keyword);
+}
+
+async function fetchStoreHtml(source, keyword, timeoutMs = 4200) {
+  const cfg = STORE_CONFIGS[source];
+  const searchUrl = buildSearchUrl(cfg, keyword);
+  const response = await fetchWithTimeout(
+    searchUrl,
+    {
+      headers: {
+        ...browserHeaders(cfg.homepage),
+        "cache-control": "no-cache",
+        pragma: "no-cache",
+      },
+      redirect: "follow",
+    },
+    timeoutMs
+  );
+
+  if (!response.ok) throw new Error(`${cfg.name} HTTP ${response.status}`);
+  const contentType = response.headers.get("content-type") || "";
+  if (!contentType.includes("text/html") && !contentType.includes("application/xhtml")) {
+    throw new Error(`${cfg.name} 回傳非 HTML 搜尋頁`);
+  }
+
+  let html = await response.text();
+  if (html.length > 1_600_000) html = html.slice(0, 1_600_000);
+  return { html, searchUrl };
+}
+
+async function searchCostco(keyword) {
+  const { html, searchUrl } = await fetchStoreHtml("costco", keyword, 5000);
+  const candidates = [
+    ...extractJsonLdProducts(html, "costco", searchUrl),
+    ...extractEmbeddedJsonProducts(html, "costco", searchUrl),
+    ...extractWideAnchorProducts(html, "costco", searchUrl, keyword, {
+      hrefPattern: /\/p\/|\/c\//i,
+      priceLabels: /\$|NT\$|價格/i,
+    }),
+    ...extractKeywordWindowProducts(html, "costco", searchUrl, keyword),
+  ];
+  return rankAndDedupe(candidates, keyword).slice(0, MAX_PER_STORE);
+}
+
+async function searchYahoo(keyword) {
+  const { html, searchUrl } = await fetchStoreHtml("yahoo", keyword, 5000);
+  const candidates = [
+    ...extractYahooGridProducts(html, "yahoo", searchUrl, keyword),
+    ...extractJsonLdProducts(html, "yahoo", searchUrl),
+    ...extractEmbeddedJsonProducts(html, "yahoo", searchUrl),
+    ...extractWideAnchorProducts(html, "yahoo", searchUrl, keyword, {
+      hrefPattern: /\/gdsale\//i,
+      priceLabels: /\$|售價|優惠價/i,
+    }),
+  ];
+  return rankAndDedupe(candidates, keyword).slice(0, MAX_PER_STORE);
+}
+
+async function searchCoupang(keyword) {
+  const { html, searchUrl } = await fetchStoreHtml("coupang", keyword, 5200);
+  const candidates = [
+    ...extractCoupangProducts(html, searchUrl, keyword),
+    ...extractJsonLdProducts(html, "coupang", searchUrl),
+    ...extractEmbeddedJsonProducts(html, "coupang", searchUrl),
+    ...extractWideAnchorProducts(html, "coupang", searchUrl, keyword, {
+      hrefPattern: /\/vp\/products\//i,
+      priceLabels: /\$|折扣後價格|首購折扣價/i,
+    }),
+  ];
+  return rankAndDedupe(candidates, keyword).slice(0, MAX_PER_STORE);
+}
+
+async function searchCarrefour(keyword) {
+  const { html, searchUrl } = await fetchStoreHtml("carrefour", keyword, 4800);
+  const candidates = [
+    ...extractJsonLdProducts(html, "carrefour", searchUrl),
+    ...extractEmbeddedJsonProducts(html, "carrefour", searchUrl),
+    ...extractWideAnchorProducts(html, "carrefour", searchUrl, keyword, {
+      hrefPattern: /\/zh\//i,
+      priceLabels: /\$|特價|售價/i,
+    }),
+    ...extractKeywordWindowProducts(html, "carrefour", searchUrl, keyword),
+  ];
+  return rankAndDedupe(candidates, keyword).slice(0, MAX_PER_STORE);
+}
+
+async function searchTk3c(keyword) {
+  const { html, searchUrl } = await fetchStoreHtml("tk3c", keyword, 4200);
+  const candidates = [
+    ...extractJsonLdProducts(html, "tk3c", searchUrl),
+    ...extractEmbeddedJsonProducts(html, "tk3c", searchUrl),
+    ...extractWideAnchorProducts(html, "tk3c", searchUrl, keyword, {
+      hrefPattern: /ptview\.aspx|dic\d?\.aspx/i,
+      priceLabels: /網路價|會員價|\$/i,
+    }),
+    ...extractKeywordWindowProducts(html, "tk3c", searchUrl, keyword),
+  ];
+  return rankAndDedupe(candidates, keyword).slice(0, MAX_PER_STORE);
 }
 
 async function searchPchome(keyword) {
@@ -542,6 +644,191 @@ function extractHtmlAnchorProducts(html, source, baseUrl) {
   }
 
   return results;
+}
+
+function extractYahooGridProducts(html, source, baseUrl, keyword) {
+  const results = [];
+  const regex = /<li\b[^>]*class=["'][^"']*BaseGridItem[^"']*["'][^>]*>([\s\S]*?)<\/li>/gi;
+  let match;
+  let inspected = 0;
+
+  while ((match = regex.exec(html)) && inspected++ < 120 && results.length < 16) {
+    const block = match[1];
+    const hrefMatch = block.match(/<a\b[^>]*href=["']([^"']+)["']/i);
+    const text = stripTags(block);
+    const price = extractPriceFromText(text);
+    if (!hrefMatch || !Number.isFinite(price)) continue;
+
+    const title = deriveTitleFromText(text, keyword);
+    if (!title || !isLikelyRelevantTitle(title, keyword)) continue;
+
+    results.push(makeRawItem(
+      source,
+      title,
+      price,
+      absoluteUrl(hrefMatch[1], baseUrl) || baseUrl,
+      `yahoo-${results.length}`
+    ));
+  }
+  return results;
+}
+
+function extractCoupangProducts(html, baseUrl, keyword) {
+  const results = [];
+  const regex = /<a\b([^>]*?)href=["']([^"']*\/vp\/products\/[^"']+)["']([^>]*)>([\s\S]{0,2600}?)<\/a>/gi;
+  let match;
+  let inspected = 0;
+
+  while ((match = regex.exec(html)) && inspected++ < 180 && results.length < 18) {
+    const text = stripTags(match[4]);
+    const price = extractPriceFromText(text);
+    if (!Number.isFinite(price)) continue;
+
+    const title = deriveTitleFromText(text, keyword);
+    if (!title || !isLikelyRelevantTitle(title, keyword)) continue;
+
+    results.push(makeRawItem(
+      "coupang",
+      title,
+      price,
+      absoluteUrl(match[2], baseUrl) || baseUrl,
+      `coupang-${results.length}`
+    ));
+  }
+  return results;
+}
+
+function extractWideAnchorProducts(html, source, baseUrl, keyword, options = {}) {
+  const results = [];
+  const regex = /<a\b([^>]*?)href=["']([^"']+)["']([^>]*)>([\s\S]{0,2200}?)<\/a>/gi;
+  let match;
+  let inspected = 0;
+
+  while ((match = regex.exec(html)) && inspected++ < 900 && results.length < 24) {
+    const href = match[2];
+    if (options.hrefPattern && !options.hrefPattern.test(href)) continue;
+
+    const attrs = `${match[1]} ${match[3]}`;
+    const body = match[4];
+    const after = html.slice(regex.lastIndex, Math.min(html.length, regex.lastIndex + 1000));
+    const text = stripTags(body + " " + after);
+
+    if (options.priceLabels && !options.priceLabels.test(text)) continue;
+
+    const price = extractPriceFromText(text);
+    if (!Number.isFinite(price)) continue;
+
+    const attrTitle =
+      getHtmlAttribute(attrs, "title") ||
+      getHtmlAttribute(attrs, "aria-label") ||
+      getHtmlAttribute(attrs, "data-name");
+
+    const title = cleanText(attrTitle || deriveTitleFromText(stripTags(body), keyword));
+    if (!title || title.length < 3 || title.length > 220) continue;
+    if (!isLikelyRelevantTitle(title, keyword)) continue;
+
+    const url = absoluteUrl(href, baseUrl);
+    if (!url) continue;
+
+    results.push(makeRawItem(source, title, price, url, `wide-${results.length}`));
+  }
+
+  return results;
+}
+
+function extractKeywordWindowProducts(html, source, baseUrl, keyword) {
+  const results = [];
+  const normalizedKeyword = cleanText(keyword);
+  if (!normalizedKeyword) return results;
+
+  const lowerHtml = html.toLowerCase();
+  const probes = buildKeywordProbes(normalizedKeyword);
+
+  for (const probe of probes) {
+    let from = 0;
+    let hits = 0;
+    while (hits++ < 18) {
+      const pos = lowerHtml.indexOf(probe.toLowerCase(), from);
+      if (pos < 0) break;
+      from = pos + probe.length;
+
+      const start = Math.max(0, pos - 1100);
+      const end = Math.min(html.length, pos + 1800);
+      const windowHtml = html.slice(start, end);
+      const windowText = stripTags(windowHtml);
+      const price = extractPriceFromText(windowText);
+      if (!Number.isFinite(price)) continue;
+
+      const links = [...windowHtml.matchAll(/href=["']([^"']+)["']/gi)];
+      const link = links.length ? links[Math.floor(links.length / 2)]?.[1] : "";
+      const url = absoluteUrl(link, baseUrl) || baseUrl;
+
+      const title = deriveTitleFromText(windowText, keyword);
+      if (!title || !isLikelyRelevantTitle(title, keyword)) continue;
+
+      results.push(makeRawItem(source, title, price, url, `window-${results.length}`));
+      if (results.length >= 16) return results;
+    }
+  }
+  return results;
+}
+
+function buildKeywordProbes(keyword) {
+  const compact = normalizeForMatch(keyword);
+  const probes = [keyword];
+  const chinese = compact.replace(/[a-z0-9]/g, "");
+  if (chinese.length >= 2) probes.push(chinese.slice(0, Math.min(4, chinese.length)));
+  const tokens = keyword.split(/[\s,，/\\|+()\-_]+/).filter((x) => x.length >= 2);
+  probes.push(...tokens);
+  return [...new Set(probes.filter(Boolean))];
+}
+
+function deriveTitleFromText(text, keyword) {
+  let value = cleanText(text);
+  if (!value) return "";
+
+  value = value
+    .replace(/^(含運|免運|活動|折扣|推薦|熱銷|新品|限時)+\s*/g, "")
+    .replace(/(?:折扣後價格|首購折扣價|網路價|會員價|優惠價|售價|特價)?\s*(?:NT\$|\$)\s*[\d,]+[\s\S]*$/i, "")
+    .replace(/\s+(?:明天|今天|預計送達|免運|免費退貨|滿額|活動券|加入購物車)[\s\S]*$/i, "")
+    .trim();
+
+  if (value.length > 220) {
+    const k = normalizeForMatch(keyword);
+    const parts = value.split(/\s{2,}|\|/).map((x) => x.trim()).filter(Boolean);
+    const relevant = parts.find((part) => normalizeForMatch(part).includes(k));
+    if (relevant) value = relevant;
+  }
+
+  return value.slice(0, 220);
+}
+
+function rankAndDedupe(items, keyword) {
+  const scored = items
+    .filter((item) => item && item.title && Number.isFinite(item.price) && item.price > 0)
+    .map((item) => ({
+      item,
+      score: relevanceScore(item.title, keyword),
+    }))
+    .filter((x) => x.score > 0)
+    .sort((a, b) => b.score - a.score || a.item.price - b.item.price)
+    .map((x) => x.item);
+
+  return dedupeRawItems(scored);
+}
+
+function relevanceScore(title, keyword) {
+  const t = normalizeForMatch(title);
+  const k = normalizeForMatch(keyword);
+  if (!t || !k) return 0;
+  if (t.includes(k)) return 100;
+
+  let score = 0;
+  for (const probe of buildKeywordProbes(keyword)) {
+    const p = normalizeForMatch(probe);
+    if (p && t.includes(p)) score += Math.max(8, p.length * 4);
+  }
+  return score;
 }
 
 function makeRawItem(source, title, price, url, suffix) {
