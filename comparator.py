@@ -2,13 +2,11 @@ import os
 import json
 import time
 import urllib.parse
-import httpx
-from bs4 import BeautifulSoup
 from google import genai
 from google.genai.errors import APIError
 from pydantic import BaseModel, Field
 
-# 從 GitHub Secrets 自動載入
+# 從環境變數自動載入 GitHub Secret
 client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
 
 class ProductItem(BaseModel):
@@ -25,7 +23,7 @@ class ComparisonResult(BaseModel):
     items: list[ProductItem] = Field(description="比價列表")
 
 def extract_domain_name(url: str) -> str:
-    """自動從首頁網址提取網域名稱"""
+    """自動從官網網址提取乾淨網域名稱"""
     if not url.startswith("http"):
         url = "https://" + url
     parsed = urllib.parse.urlparse(url)
@@ -40,18 +38,18 @@ def run_price_comparison(keyword: str, store_urls: list[str]) -> list[ProductIte
     目標購物官網網域清單：{domains}
 
     任務：
-    1. 針對上述每個購物官網，精準評估該站在此關鍵字下對應的主力現貨商品。
-    2. 提取出乾淨價格（數值）。
+    1. 針對上述每個購物官網，評估該站在此關鍵字下對應的主力現貨商品。
+    2. 提取出乾淨價格（純數字）。
     3. 提取核心規格參數（如容量、型號、顏色等）。
     4. 給予完全相同規格的商品相同的 matched_group_id。
-    5. 排除不相關配件。
+    5. 排除不相關配件（標記 is_target_match = false）。
     """
 
-    # 針對 high demand 自動重試 3 次
+    # 針對伺服器尖峰過載（high demand）進行自動重試
     for attempt in range(3):
         try:
             response = client.models.generate_content(
-                model="gemini-2.5-flash",
+                model="gemini-3.6-flash",
                 contents=prompt,
                 config={
                     "response_mime_type": "application/json",
@@ -62,19 +60,13 @@ def run_price_comparison(keyword: str, store_urls: list[str]) -> list[ProductIte
             result = ComparisonResult.model_validate(raw_json)
             return result.items
         except APIError as e:
-            if "high demand" in str(e).lower() or attempt < 2:
+            if "high demand" in str(e).lower() and attempt < 2:
                 time.sleep(3 * (attempt + 1))
                 continue
             raise e
-        except Exception:
-            # 備用降級呼叫
-            response = client.models.generate_content(
-                model="gemini-2.5-flash-lite",
-                contents=prompt,
-                config={
-                    "response_mime_type": "application/json",
-                    "response_schema": ComparisonResult,
-                },
-            )
-            return ComparisonResult.model_validate(json.loads(response.text)).items
+        except Exception as e:
+            if attempt == 2:
+                raise e
+            time.sleep(2)
+            
     return []
