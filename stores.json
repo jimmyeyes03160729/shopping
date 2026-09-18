@@ -1,10 +1,5 @@
 [
-  {
-    "name": "PChome 24h",
-    "search_template": "https://ecshweb.pchome.com.tw/search/v3.3/all/results?q={keyword}"
-  },
-  {
-    "name": "Momo 購物網",
-    "search_template": "https://www.momo.com.tw/search/searchShop.jsp?keyword={keyword}"
-  }
+  "https://shopee.tw",
+  "https://24h.pchome.com.tw",
+  "https://www.momo.com.tw"
 ]
