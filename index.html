@@ -15,7 +15,7 @@
         <h1 class="text-2xl font-bold text-gray-900">🛍️ 個人專屬 AI 比價看板</h1>
         <p class="text-sm text-gray-500 mt-1">輸入關鍵字直接比價，自動標記全網最低價與購買連結</p>
       </div>
-      <!-- 金鑰設定 (本機儲存，輸入一次後永久記住) -->
+      <!-- 金鑰設定 (本機儲存) -->
       <div id="keyBox" class="w-full sm:w-72">
         <div class="flex justify-between items-center mb-1">
           <label class="text-xs font-semibold text-gray-600">Gemini API Key</label>
@@ -40,7 +40,7 @@
       <div id="statusText" class="text-xs text-gray-500 font-medium hidden"></div>
     </section>
 
-    <!-- 官網清單管理區 (只填首頁) -->
+    <!-- 官網清單管理區 -->
     <section class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 space-y-3">
       <div class="flex justify-between items-center">
         <h2 class="text-lg font-bold text-gray-800">🌐 追蹤的購物官網首頁</h2>
@@ -138,6 +138,24 @@
       renderStores();
     }
 
+    const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+    async function callGeminiApi(apiKey, prompt, model) {
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: {
+            response_mime_type: "application/json"
+          }
+        })
+      });
+      const data = await response.json();
+      if (data.error) throw new Error(data.error.message);
+      return data;
+    }
+
     async function startDirectComparison() {
       const apiKey = localStorage.getItem("gemini_user_api_key") || document.getElementById("apiKeyInput").value.trim();
       const keyword = document.getElementById("keywordInput").value.trim();
@@ -192,23 +210,39 @@
 ]
 `;
 
-      try {
-        // 已更新為 gemini-3.6-flash
-        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${apiKey}`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            contents: [{ parts: [{ text: prompt }] }],
-            generationConfig: {
-              response_mime_type: "application/json"
+      // 優先使用 3.6-flash，尖峰時段支援自動重試與備用模型
+      const candidateModels = ["gemini-3.6-flash", "gemini-2.0-flash", "gemini-1.5-flash"];
+      let successData = null;
+      let lastErrorMessage = "";
+
+      for (const model of candidateModels) {
+        for (let attempt = 1; attempt <= 2; attempt++) {
+          try {
+            statusText.innerText = `🤖 正在請求 AI 模型 (${model})${attempt > 1 ? `，重試第 ${attempt} 次` : ""}...`;
+            successData = await callGeminiApi(apiKey, prompt, model);
+            if (successData) break;
+          } catch (err) {
+            lastErrorMessage = err.message;
+            if (err.message.includes("high demand") || err.message.includes("spikes in demand")) {
+              statusText.innerText = `⚠️ Google 伺服器尖峰過載，等待 2 秒後自動重試...`;
+              await sleep(2000);
+            } else {
+              break;
             }
-          })
-        });
+          }
+        }
+        if (successData) break;
+      }
 
-        const data = await response.json();
-        if (data.error) throw new Error(data.error.message);
+      if (!successData) {
+        statusText.innerText = `❌ 查詢失敗（多次重試後伺服器仍忙碌）：${lastErrorMessage}`;
+        compareBtn.disabled = false;
+        compareBtn.innerText = "開始比價";
+        return;
+      }
 
-        const items = JSON.parse(data.candidates[0].content.parts[0].text);
+      try {
+        const items = JSON.parse(successData.candidates[0].content.parts[0].text);
         if (!Array.isArray(items) || items.length === 0) {
           statusText.innerText = "ℹ️ 未能找到相關規格商品。";
           return;
@@ -251,7 +285,7 @@
         statusText.classList.add("hidden");
         resultSection.classList.remove("hidden");
       } catch (err) {
-        statusText.innerText = `❌ 查詢失敗：${err.message}`;
+        statusText.innerText = `❌ 解析結果失敗：${err.message}`;
       } finally {
         compareBtn.disabled = false;
         compareBtn.innerText = "開始比價";
