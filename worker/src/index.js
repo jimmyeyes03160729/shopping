@@ -191,7 +191,7 @@ async function handleSearch(request, env) {
 async function runGroundedDiscovery(keyword, model, apiKey) {
   const prompt = [
     "你是一個台灣線上購物即時比價研究助手。",
-    \`搜尋商品：\${keyword}\`,
+    `搜尋商品：${keyword}`,
     "",
     "請務必使用 Google Search 取得目前可查到的台灣網路商品與售價。",
     "不要限制特定商城，但優先實際可購買的商城、品牌官網、量販店與大型電商。",
@@ -205,7 +205,7 @@ async function runGroundedDiscovery(keyword, model, apiKey) {
   ].join("\n");
 
   const response = await fetchWithTimeout(
-    \`https://generativelanguage.googleapis.com/v1beta/models/\${encodeURIComponent(model)}:generateContent\`,
+    `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
     {
       method: "POST",
       headers: {
@@ -239,7 +239,7 @@ async function runProductStructuring(keyword, grounded, model, apiKey) {
 
   const prompt = [
     "你是商品資料整理器。禁止上網、禁止自行新增價格或網址。",
-    \`使用者搜尋：\${keyword}\`,
+    `使用者搜尋：${keyword}`,
     "",
     "下面是已經由 Google Search grounding 得到的文字：",
     grounded.text.slice(0, 14000),
@@ -262,7 +262,7 @@ async function runProductStructuring(keyword, grounded, model, apiKey) {
   ].join("\n");
 
   const response = await fetchWithTimeout(
-    \`https://generativelanguage.googleapis.com/v1beta/models/\${encodeURIComponent(model)}:generateContent\`,
+    `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
     {
       method: "POST",
       headers: {
@@ -321,7 +321,7 @@ function extractGenerateContentGrounding(data) {
       if (!url) return null;
 
       return {
-        id: \`S\${index + 1}\`,
+        id: `S${index + 1}`,
         title: cleanText(web?.title) || hostLabel(url),
         url,
         snippet: "",
@@ -574,7 +574,7 @@ function dedupeSources(sources) {
 
   return [...seen.values()].map((source, index) => ({
     ...source,
-    id: \`S\${index + 1}\`
+    id: `S${index + 1}`
   }));
 }
 
@@ -706,7 +706,7 @@ function throwFriendlyGeminiError(status, text) {
   }
 
   throw new Error(
-    \`Gemini HTTP \${status}: \${String(text || "").slice(0, 260)}\`
+    `Gemini HTTP ${status}: ${String(text || "").slice(0, 260)}`
   );
 }
 
