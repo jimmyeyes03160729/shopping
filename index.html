@@ -97,8 +97,14 @@
     const badge = document.getElementById("backendBadge");
     try {
       const res = await fetch(API_BASE_URL + "/api/health", {cache:"no-store"});
-      if (!res.ok) throw new Error();
-      const data = await res.json();
+      const text = await res.text();
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      let data;
+      try {
+        data = JSON.parse(text);
+      } catch {
+        throw new Error("後端尚未回傳 API JSON");
+      }
       if (data.ok && data.gemini) {
         badge.textContent = "後端服務正常";
         badge.className = "px-3 py-1.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200";
@@ -127,8 +133,19 @@
         headers: {"Content-Type":"application/json"},
         body: JSON.stringify({ keyword, sources:["pchome","momo","shopee"] })
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "搜尋失敗");
+
+      const responseText = await res.text();
+      let data;
+      try {
+        data = JSON.parse(responseText);
+      } catch {
+        if (responseText.trim().startsWith("<")) {
+          throw new Error("Cloudflare Worker 尚未就緒，請稍候幾分鐘後重新整理再試");
+        }
+        throw new Error("後端回傳格式異常");
+      }
+
+      if (!res.ok) throw new Error(data.error || `搜尋失敗（HTTP ${res.status}）`);
 
       allItems = Array.isArray(data.items) ? data.items : [];
       dimensions = Array.isArray(data.dimensions) ? data.dimensions : [];
