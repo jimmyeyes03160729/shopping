@@ -9,15 +9,24 @@
 <body class="bg-gray-50 text-gray-800 p-4 sm:p-8 min-h-screen">
   <div class="max-w-5xl mx-auto space-y-6">
     
-    <!-- 頁頭 (已移除 API Key 輸入框) -->
-    <header class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex justify-between items-center">
+    <!-- 頁頭 -->
+    <header class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
       <div>
         <h1 class="text-2xl font-bold text-gray-900">🛍️ 個人專屬 AI 比價看板</h1>
-        <p class="text-sm text-gray-500 mt-1">只填首頁即刻分析，自動標記全網最低價與前往連結</p>
+        <p class="text-sm text-gray-500 mt-1">輸入關鍵字直接比價，自動標記全網最低價與購買連結</p>
+      </div>
+      <!-- 金鑰設定 (本機儲存，輸入一次後永久記住) -->
+      <div id="keyBox" class="w-full sm:w-72">
+        <div class="flex justify-between items-center mb-1">
+          <label class="text-xs font-semibold text-gray-600">Gemini API Key</label>
+          <span id="keyStatus" class="text-[10px] text-gray-400"></span>
+        </div>
+        <input id="apiKeyInput" type="password" placeholder="貼上你的 API Key (只填一次)"
+          class="w-full text-xs px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
       </div>
     </header>
 
-    <!-- 搜尋欄位：按下去直接比價 -->
+    <!-- 搜尋欄位 -->
     <section class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 space-y-4">
       <h2 class="text-lg font-bold text-gray-800">🔍 商品關鍵字搜尋</h2>
       <div class="flex flex-col sm:flex-row gap-2">
@@ -31,14 +40,14 @@
       <div id="statusText" class="text-xs text-gray-500 font-medium hidden"></div>
     </section>
 
-    <!-- 官網清單管理區 (直接填首頁即可) -->
+    <!-- 官網清單管理區 (只填首頁) -->
     <section class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 space-y-3">
       <div class="flex justify-between items-center">
         <h2 class="text-lg font-bold text-gray-800">🌐 追蹤的購物官網首頁</h2>
-        <span class="text-xs text-gray-400">直接貼首頁，自動儲存下次繼續用</span>
+        <span class="text-xs text-gray-400">只貼官網首頁，自動保存</span>
       </div>
       <div class="flex gap-2">
-        <input id="storeUrlInput" type="text" placeholder="直接貼上首頁網址，例如: https://shopee.tw" 
+        <input id="storeUrlInput" type="text" placeholder="貼上官網首頁，例如: https://shopee.tw" 
                class="flex-1 px-3 py-2 border rounded-xl text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
         <button onclick="addStore()" class="bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-4 py-2 rounded-xl transition">
           新增官網
@@ -76,9 +85,6 @@
   </div>
 
   <script>
-    // ⚠️ 請直接填入你的真實 API Key
-    const GEMINI_API_KEY = "AQ.Ab8RN6Is3pPGGRQhogUD5CgtqywFj59F-0GdlljwgNNWUBotvA";
-
     let stores = JSON.parse(localStorage.getItem("my_simple_stores")) || [
       "https://shopee.tw",
       "https://24h.pchome.com.tw",
@@ -86,11 +92,25 @@
     ];
 
     window.onload = () => {
+      const savedKey = localStorage.getItem("gemini_user_api_key") || "";
+      if (savedKey) {
+        document.getElementById("apiKeyInput").value = savedKey;
+        document.getElementById("keyStatus").innerText = "已就緒";
+        document.getElementById("keyStatus").className = "text-[10px] text-emerald-600 font-bold";
+      }
       renderStores();
+
       document.getElementById("keywordInput").addEventListener("keypress", (e) => {
         if (e.key === "Enter") startDirectComparison();
       });
     };
+
+    document.getElementById("apiKeyInput").addEventListener("input", (e) => {
+      const val = e.target.value.trim();
+      localStorage.setItem("gemini_user_api_key", val);
+      document.getElementById("keyStatus").innerText = val ? "已就緒" : "";
+      document.getElementById("keyStatus").className = "text-[10px] text-emerald-600 font-bold";
+    });
 
     function renderStores() {
       const container = document.getElementById("storeList");
@@ -119,18 +139,19 @@
     }
 
     async function startDirectComparison() {
+      const apiKey = localStorage.getItem("gemini_user_api_key") || document.getElementById("apiKeyInput").value.trim();
       const keyword = document.getElementById("keywordInput").value.trim();
       const statusText = document.getElementById("statusText");
       const resultSection = document.getElementById("resultSection");
       const resultBody = document.getElementById("resultBody");
       const compareBtn = document.getElementById("compareBtn");
 
-      if (!GEMINI_API_KEY || GEMINI_API_KEY.includes("貼上你的真實")) {
-        alert("請先在代碼中的 GEMINI_API_KEY 填入你的真實金鑰！");
+      if (!apiKey) {
+        alert("請先在右上角貼入一次你的 Gemini API Key！");
         return;
       }
       if (!keyword) {
-        alert("請輸入要搜尋的商品關鍵字！");
+        alert("請輸入商品關鍵字！");
         return;
       }
       if (stores.length === 0) {
@@ -141,24 +162,23 @@
       compareBtn.disabled = true;
       compareBtn.innerText = "⏳ 比價中...";
       statusText.classList.remove("hidden");
-      statusText.innerText = "🤖 Gemini 正在針對各官網進行即時規格比對與分析...";
+      statusText.innerText = "🤖 正在連線 Gemini 進行即時規格分析與比價...";
       resultSection.classList.add("hidden");
       resultBody.innerHTML = "";
 
       const prompt = `
-你是一位專業的商品規格分析與比價專家。
-搜尋關鍵字：「${keyword}」。
-目標官網清單：${JSON.stringify(stores)}
+你是一位專業的商品規格分析與比價引擎。
+使用者搜尋關鍵字：「${keyword}」。
+目標購物官網清單：${JSON.stringify(stores)}
 
-任務需求：
-1. 針對上述每個官網，評估在此關鍵字下對應的主力現貨商品。
-2. 提取出純數字價格（去除貨幣符號）。
-3. 提取核心規格參數（如容量、顏色、處理器）。
-4. 重要：將「完全相同規格」的商品賦予相同的 matched_group_id（例如 iphone-16-pro-128g）。
+任務：
+1. 針對各官網，評估在此關鍵字下對應的主力現貨商品。
+2. 提取純數字價格。
+3. 提取核心規格參數（如容量、顏色、型號）。
+4. 將完全相同規格的商品賦予相同的 matched_group_id。
 5. 排除不相關配件。
-6. 提供對應商城的搜尋連結或官網連結。
 
-請嚴格以 JSON 陣列格式回傳：
+請只回傳以下格式的 JSON 陣列：
 [
   {
     "store_name": "商城名稱",
@@ -173,7 +193,7 @@
 `;
 
       try {
-        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
+        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
