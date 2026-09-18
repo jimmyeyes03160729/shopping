@@ -3,299 +3,267 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>我的個人 AI 比價系統</title>
+  <title>個人智慧比價系統</title>
   <script src="https://cdn.tailwindcss.com"></script>
 </head>
-<body class="bg-gray-50 text-gray-800 p-4 sm:p-8 min-h-screen">
-  <div class="max-w-5xl mx-auto space-y-6">
-    
-    <!-- 頁頭 -->
-    <header class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-      <div>
-        <h1 class="text-2xl font-bold text-gray-900">🛍️ 個人專屬 AI 比價看板</h1>
-        <p class="text-sm text-gray-500 mt-1">輸入關鍵字直接比價，自動標記全網最低價與購買連結</p>
-      </div>
-      <!-- 金鑰設定 (本機儲存) -->
-      <div id="keyBox" class="w-full sm:w-72">
-        <div class="flex justify-between items-center mb-1">
-          <label class="text-xs font-semibold text-gray-600">Gemini API Key</label>
-          <span id="keyStatus" class="text-[10px] text-gray-400"></span>
+<body class="bg-slate-50 text-slate-800 min-h-screen">
+  <main class="max-w-6xl mx-auto p-4 sm:p-8 space-y-6">
+    <header class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+      <div class="flex flex-col lg:flex-row lg:items-end justify-between gap-4">
+        <div>
+          <h1 class="text-2xl font-bold">🛍️ 個人智慧比價系統</h1>
+          <p class="text-sm text-slate-500 mt-1">先搜尋主商品，再選容量、顏色等規格，查看各商城同規格價格。</p>
         </div>
-        <input id="apiKeyInput" type="password" placeholder="貼上你的 API Key (只填一次)"
-          class="w-full text-xs px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+        <div class="flex gap-2 text-xs">
+          <span id="backendBadge" class="px-3 py-1.5 rounded-full bg-slate-100 text-slate-500">檢查服務中…</span>
+        </div>
       </div>
     </header>
 
-    <!-- 搜尋欄位 -->
-    <section class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 space-y-4">
-      <h2 class="text-lg font-bold text-gray-800">🔍 商品關鍵字搜尋</h2>
+    <section class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-4">
+      <div>
+        <label class="text-sm font-semibold">商品名稱</label>
+        <p class="text-xs text-slate-500 mt-1">不需要先輸入容量或顏色，例如直接搜尋「iPhone 18 Pro」。</p>
+      </div>
       <div class="flex flex-col sm:flex-row gap-2">
-        <input id="keywordInput" type="text" placeholder="輸入關鍵字 (例: iPhone 16 Pro、Sony WH-1000XM5)" 
-               class="flex-1 px-4 py-2.5 border rounded-xl text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
-        <button id="compareBtn" onclick="startDirectComparison()" 
-                class="bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold px-6 py-2.5 rounded-xl transition flex items-center justify-center gap-2 shadow-sm">
-          <span>開始比價</span>
-        </button>
+        <input id="keywordInput" class="flex-1 border rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-emerald-500"
+               placeholder="例如：iPhone 18 Pro、Sony WH-1000XM6" />
+        <button id="searchBtn" class="bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 text-white font-semibold px-6 py-3 rounded-xl"
+                onclick="runSearch()">開始搜尋</button>
       </div>
-      <div id="statusText" class="text-xs text-gray-500 font-medium hidden"></div>
+      <div id="status" class="hidden text-sm rounded-xl p-3"></div>
     </section>
 
-    <!-- 官網清單管理區 -->
-    <section class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 space-y-3">
-      <div class="flex justify-between items-center">
-        <h2 class="text-lg font-bold text-gray-800">🌐 追蹤的購物官網首頁</h2>
-        <span class="text-xs text-gray-400">只貼官網首頁，自動保存</span>
+    <section id="filterSection" class="hidden bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-5">
+      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+        <div>
+          <h2 class="text-lg font-bold">規格篩選</h2>
+          <p class="text-xs text-slate-500">系統會依搜尋結果自動產生規格欄位。</p>
+        </div>
+        <button onclick="clearFilters()" class="text-xs border px-3 py-1.5 rounded-lg hover:bg-slate-50">清除篩選</button>
       </div>
-      <div class="flex gap-2">
-        <input id="storeUrlInput" type="text" placeholder="貼上官網首頁，例如: https://shopee.tw" 
-               class="flex-1 px-3 py-2 border rounded-xl text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
-        <button onclick="addStore()" class="bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-4 py-2 rounded-xl transition">
-          新增官網
-        </button>
-      </div>
-      <div id="storeList" class="flex flex-wrap gap-2 pt-2"></div>
+      <div id="filters" class="space-y-4"></div>
     </section>
 
-    <!-- 比價結果展示區 -->
-    <section id="resultSection" class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 space-y-4 hidden">
-      <div class="flex justify-between items-center">
-        <h2 class="text-lg font-bold text-gray-800">📊 比價結果清單</h2>
-        <span class="text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-full font-medium">
-          綠色標籤為同規格最低價
-        </span>
+    <section id="sourceSection" class="hidden bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+      <h2 class="text-lg font-bold mb-3">資料來源狀態</h2>
+      <div id="sourceStatus" class="flex flex-wrap gap-2"></div>
+    </section>
+
+    <section id="resultSection" class="hidden bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-4">
+      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div>
+          <h2 class="text-lg font-bold">比價結果</h2>
+          <p id="resultSummary" class="text-xs text-slate-500 mt-1"></p>
+        </div>
+        <span class="text-xs px-3 py-1.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">最低價以目前篩選結果計算</span>
       </div>
 
       <div class="overflow-x-auto">
-        <table class="min-w-full text-left text-sm divide-y divide-gray-200">
-          <thead class="bg-gray-50">
+        <table class="min-w-full text-sm">
+          <thead class="bg-slate-50 border-y">
             <tr>
-              <th class="px-4 py-3 font-semibold text-gray-700">規格組別</th>
-              <th class="px-4 py-3 font-semibold text-gray-700">商城</th>
-              <th class="px-4 py-3 font-semibold text-gray-700">商品標題</th>
-              <th class="px-4 py-3 font-semibold text-gray-700">價格</th>
-              <th class="px-4 py-3 font-semibold text-gray-700">規格說明</th>
-              <th class="px-4 py-3 font-semibold text-gray-700 text-center">購買連結</th>
+              <th class="text-left px-4 py-3">商城</th>
+              <th class="text-left px-4 py-3">商品</th>
+              <th class="text-left px-4 py-3">規格</th>
+              <th class="text-left px-4 py-3">價格</th>
+              <th class="text-center px-4 py-3">連結</th>
             </tr>
           </thead>
-          <tbody id="resultBody" class="divide-y divide-gray-100"></tbody>
+          <tbody id="resultBody"></tbody>
         </table>
       </div>
     </section>
+  </main>
 
-  </div>
+<script>
+  // 若前端與 Worker 部署在同一個 Cloudflare Worker，保持空字串即可。
+  // 若前端仍放 GitHub Pages，請改成你的 Worker 網址，例如：
+  // const API_BASE_URL = "https://shopping-compare-api.xxx.workers.dev";
+  const API_BASE_URL = "";
 
-  <script>
-    let stores = JSON.parse(localStorage.getItem("my_simple_stores")) || [
-      "https://shopee.tw",
-      "https://24h.pchome.com.tw",
-      "https://www.momo.com.tw"
-    ];
+  let allItems = [];
+  let dimensions = [];
+  let selected = {};
 
-    window.onload = () => {
-      const savedKey = localStorage.getItem("gemini_user_api_key") || "";
-      if (savedKey) {
-        document.getElementById("apiKeyInput").value = savedKey;
-        document.getElementById("keyStatus").innerText = "已就緒";
-        document.getElementById("keyStatus").className = "text-[10px] text-emerald-600 font-bold";
-      }
-      renderStores();
-
-      document.getElementById("keywordInput").addEventListener("keypress", (e) => {
-        if (e.key === "Enter") startDirectComparison();
-      });
-    };
-
-    document.getElementById("apiKeyInput").addEventListener("input", (e) => {
-      const val = e.target.value.trim();
-      localStorage.setItem("gemini_user_api_key", val);
-      document.getElementById("keyStatus").innerText = val ? "已就緒" : "";
-      document.getElementById("keyStatus").className = "text-[10px] text-emerald-600 font-bold";
+  window.addEventListener("load", () => {
+    document.getElementById("keywordInput").addEventListener("keydown", e => {
+      if (e.key === "Enter") runSearch();
     });
+    checkHealth();
+  });
 
-    function renderStores() {
-      const container = document.getElementById("storeList");
-      container.innerHTML = stores.map((s, i) => `
-        <span class="inline-flex items-center gap-1.5 bg-gray-100 text-gray-700 px-3 py-1 rounded-full text-xs">
-          ${s}
-          <button onclick="removeStore(${i})" class="text-red-500 hover:text-red-700 font-bold ml-1">×</button>
-        </span>
-      `).join("");
-      localStorage.setItem("my_simple_stores", JSON.stringify(stores));
-    }
-
-    function addStore() {
-      const input = document.getElementById("storeUrlInput");
-      const val = input.value.trim();
-      if (val) {
-        stores.push(val.startsWith("http") ? val : "https://" + val);
-        input.value = "";
-        renderStores();
+  async function checkHealth() {
+    const badge = document.getElementById("backendBadge");
+    try {
+      const res = await fetch(API_BASE_URL + "/api/health", {cache:"no-store"});
+      if (!res.ok) throw new Error();
+      const data = await res.json();
+      if (data.ok && data.gemini) {
+        badge.textContent = "後端服務正常";
+        badge.className = "px-3 py-1.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200";
+      } else {
+        badge.textContent = "後端未設定 Gemini";
+        badge.className = "px-3 py-1.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200";
       }
+    } catch {
+      badge.textContent = "尚未連接後端";
+      badge.className = "px-3 py-1.5 rounded-full bg-rose-50 text-rose-700 border border-rose-200";
     }
-
-    function removeStore(index) {
-      stores.splice(index, 1);
-      renderStores();
-    }
-
-    const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
-    async function callGeminiApi(apiKey, prompt, model) {
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: {
-            response_mime_type: "application/json"
-          }
-        })
-      });
-      const data = await response.json();
-      if (data.error) throw new Error(data.error.message);
-      return data;
-    }
-
-    async function startDirectComparison() {
-      const apiKey = localStorage.getItem("gemini_user_api_key") || document.getElementById("apiKeyInput").value.trim();
-      const keyword = document.getElementById("keywordInput").value.trim();
-      const statusText = document.getElementById("statusText");
-      const resultSection = document.getElementById("resultSection");
-      const resultBody = document.getElementById("resultBody");
-      const compareBtn = document.getElementById("compareBtn");
-
-      if (!apiKey) {
-        alert("請先在右上角貼入一次你的 Gemini API Key！");
-        return;
-      }
-      if (!keyword) {
-        alert("請輸入商品關鍵字！");
-        return;
-      }
-      if (stores.length === 0) {
-        alert("請至少新增一個官網首頁！");
-        return;
-      }
-
-      compareBtn.disabled = true;
-      compareBtn.innerText = "⏳ 比價中...";
-      statusText.classList.remove("hidden");
-      statusText.innerText = "🤖 正在連線 Gemini 進行即時規格分析與比價...";
-      resultSection.classList.add("hidden");
-      resultBody.innerHTML = "";
-
-      const prompt = `
-你是一位專業的商品規格分析與比價引擎。
-使用者搜尋關鍵字：「${keyword}」。
-目標購物官網清單：${JSON.stringify(stores)}
-
-任務：
-1. 針對各官網，評估在此關鍵字下對應的主力現貨商品。
-2. 提取純數字價格。
-3. 提取核心規格參數（如容量、顏色、型號）。
-4. 將完全相同規格的商品賦予相同的 matched_group_id。
-5. 排除不相關配件。
-
-請只回傳以下格式的 JSON 陣列：
-[
-  {
-    "store_name": "商城名稱",
-    "canonical_name": "標準商品名稱",
-    "price": 36900,
-    "currency": "TWD",
-    "matched_group_id": "規格組別ID",
-    "key_specs": "128GB / 原色鈦金屬",
-    "url": "https://shopee.tw/search?keyword=..."
   }
-]
-`;
 
-      // 優先使用 3.6-flash，尖峰時段支援自動重試與備用模型
-      const candidateModels = ["gemini-3.6-flash", "gemini-2.0-flash", "gemini-1.5-flash"];
-      let successData = null;
-      let lastErrorMessage = "";
+  async function runSearch() {
+    const keyword = document.getElementById("keywordInput").value.trim();
+    if (!keyword) return showStatus("請先輸入商品名稱。", "warn");
 
-      for (const model of candidateModels) {
-        for (let attempt = 1; attempt <= 2; attempt++) {
-          try {
-            statusText.innerText = `🤖 正在請求 AI 模型 (${model})${attempt > 1 ? `，重試第 ${attempt} 次` : ""}...`;
-            successData = await callGeminiApi(apiKey, prompt, model);
-            if (successData) break;
-          } catch (err) {
-            lastErrorMessage = err.message;
-            if (err.message.includes("high demand") || err.message.includes("spikes in demand")) {
-              statusText.innerText = `⚠️ Google 伺服器尖峰過載，等待 2 秒後自動重試...`;
-              await sleep(2000);
-            } else {
-              break;
-            }
-          }
-        }
-        if (successData) break;
+    const btn = document.getElementById("searchBtn");
+    btn.disabled = true;
+    btn.textContent = "搜尋中…";
+    showStatus("正在取得商城商品資料並整理規格，價格不由 AI 產生。", "info");
+
+    try {
+      const res = await fetch(API_BASE_URL + "/api/search", {
+        method: "POST",
+        headers: {"Content-Type":"application/json"},
+        body: JSON.stringify({ keyword, sources:["pchome","momo","shopee"] })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "搜尋失敗");
+
+      allItems = Array.isArray(data.items) ? data.items : [];
+      dimensions = Array.isArray(data.dimensions) ? data.dimensions : [];
+      selected = {};
+
+      renderSourceStatus(data.sources || []);
+      renderFilters();
+      renderResults();
+
+      document.getElementById("sourceSection").classList.remove("hidden");
+
+      if (!allItems.length) {
+        document.getElementById("filterSection").classList.add("hidden");
+        document.getElementById("resultSection").classList.add("hidden");
+        showStatus(data.message || "沒有找到可驗證的商品。", "warn");
+      } else {
+        document.getElementById("filterSection").classList.toggle("hidden", dimensions.length === 0);
+        document.getElementById("resultSection").classList.remove("hidden");
+        showStatus(`找到 ${allItems.length} 筆符合主商品的結果，可再選擇規格。`, "ok");
       }
+    } catch (err) {
+      allItems = [];
+      dimensions = [];
+      document.getElementById("filterSection").classList.add("hidden");
+      document.getElementById("resultSection").classList.add("hidden");
+      showStatus("搜尋失敗：" + err.message, "error");
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "開始搜尋";
+    }
+  }
 
-      if (!successData) {
-        statusText.innerText = `❌ 查詢失敗（多次重試後伺服器仍忙碌）：${lastErrorMessage}`;
-        compareBtn.disabled = false;
-        compareBtn.innerText = "開始比價";
-        return;
-      }
+  function renderFilters() {
+    const box = document.getElementById("filters");
+    box.innerHTML = dimensions.map(dim => {
+      const buttons = dim.values.map(value => {
+        const active = selected[dim.key] === value;
+        return `<button onclick='toggleFilter(${JSON.stringify(dim.key)},${JSON.stringify(value)})'
+          class="px-3 py-2 rounded-lg text-sm border transition ${active ? "bg-blue-600 text-white border-blue-600" : "bg-white hover:bg-slate-50"}">
+          ${escapeHtml(value)}
+        </button>`;
+      }).join("");
+      return `<div>
+        <div class="text-sm font-semibold mb-2">${escapeHtml(dim.label)}</div>
+        <div class="flex flex-wrap gap-2">${buttons}</div>
+      </div>`;
+    }).join("");
+  }
 
-      try {
-        const items = JSON.parse(successData.candidates[0].content.parts[0].text);
-        if (!Array.isArray(items) || items.length === 0) {
-          statusText.innerText = "ℹ️ 未能找到相關規格商品。";
-          return;
-        }
+  function toggleFilter(key, value) {
+    selected[key] = selected[key] === value ? undefined : value;
+    if (!selected[key]) delete selected[key];
+    renderFilters();
+    renderResults();
+  }
 
-        const minPriceMap = {};
-        items.forEach(p => {
-          if (!minPriceMap[p.matched_group_id] || p.price < minPriceMap[p.matched_group_id]) {
-            minPriceMap[p.matched_group_id] = p.price;
-          }
-        });
+  function clearFilters() {
+    selected = {};
+    renderFilters();
+    renderResults();
+  }
 
-        items.sort((a, b) => a.matched_group_id.localeCompare(b.matched_group_id) || a.price - b.price);
+  function filteredItems() {
+    return allItems.filter(item => {
+      return Object.entries(selected).every(([key, value]) => item.specs && item.specs[key] === value);
+    });
+  }
 
-        resultBody.innerHTML = items.map(p => {
-          const isLowest = p.price === minPriceMap[p.matched_group_id];
-          const targetUrl = p.url && p.url.startsWith("http") ? p.url : `https://www.google.com/search?q=${encodeURIComponent(p.store_name + ' ' + p.canonical_name)}`;
-          return `
-            <tr class="hover:bg-gray-50 transition ${isLowest ? 'bg-emerald-50/40' : ''}">
-              <td class="px-4 py-3 font-mono text-xs text-blue-600 font-semibold">${escapeHtml(p.matched_group_id)}</td>
-              <td class="px-4 py-3 font-medium text-gray-900">${escapeHtml(p.store_name)}</td>
-              <td class="px-4 py-3 font-medium text-gray-800">${escapeHtml(p.canonical_name)}</td>
-              <td class="px-4 py-3 whitespace-nowrap">
-                <span class="font-bold ${isLowest ? 'text-emerald-600 text-base' : 'text-gray-800'}">
-                  NT$ ${Number(p.price).toLocaleString()}
-                </span>
-                ${isLowest ? '<span class="ml-1.5 inline-block bg-emerald-600 text-white text-[10px] font-bold px-1.5 py-0.5 rounded shadow-sm">最低價</span>' : ''}
-              </td>
-              <td class="px-4 py-3 text-xs text-gray-500">${escapeHtml(p.key_specs || '-')}</td>
-              <td class="px-4 py-3 text-center whitespace-nowrap">
-                <a href="${targetUrl}" target="_blank" rel="noopener noreferrer" 
-                   class="inline-block bg-blue-50 hover:bg-blue-600 hover:text-white text-blue-600 border border-blue-200 text-xs font-semibold px-3 py-1.5 rounded-lg transition">
-                  前往購買 ↗
-                </a>
-              </td>
-            </tr>
-          `;
-        }).join("");
+  function renderResults() {
+    const items = filteredItems().slice().sort((a,b) => a.price - b.price);
+    const body = document.getElementById("resultBody");
+    const summary = document.getElementById("resultSummary");
 
-        statusText.classList.add("hidden");
-        resultSection.classList.remove("hidden");
-      } catch (err) {
-        statusText.innerText = `❌ 解析結果失敗：${err.message}`;
-      } finally {
-        compareBtn.disabled = false;
-        compareBtn.innerText = "開始比價";
-      }
+    summary.textContent = Object.keys(selected).length
+      ? `目前篩選：${Object.entries(selected).map(([k,v]) => k + " " + v).join(" / ")}，共 ${items.length} 筆`
+      : `尚未選擇規格，共 ${items.length} 筆`;
+
+    if (!items.length) {
+      body.innerHTML = '<tr><td colspan="5" class="text-center py-10 text-slate-500">目前沒有符合這組規格的商品。</td></tr>';
+      return;
     }
 
-    function escapeHtml(str) {
-      if (!str) return "";
-      return String(str).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
-    }
-  </script>
+    const minPrice = Math.min(...items.map(x => Number(x.price)).filter(Number.isFinite));
+
+    body.innerHTML = items.map(item => {
+      const lowest = Number(item.price) === minPrice;
+      const specs = Object.entries(item.specs || {})
+        .map(([k,v]) => `<span class="inline-block mr-1 mb-1 bg-slate-100 px-2 py-1 rounded-md text-xs"><b>${escapeHtml(k)}</b> ${escapeHtml(v)}</span>`)
+        .join("");
+
+      return `<tr class="border-b hover:bg-slate-50 ${lowest ? "bg-emerald-50/40" : ""}">
+        <td class="px-4 py-4 whitespace-nowrap font-medium">${escapeHtml(item.store_name)}</td>
+        <td class="px-4 py-4 min-w-[280px]">
+          <div class="font-medium">${escapeHtml(item.canonical_name || item.title)}</div>
+          <div class="text-xs text-slate-400 mt-1">${escapeHtml(item.title)}</div>
+        </td>
+        <td class="px-4 py-4 min-w-[220px]">${specs || '<span class="text-xs text-slate-400">未解析到額外規格</span>'}</td>
+        <td class="px-4 py-4 whitespace-nowrap">
+          <div class="font-bold ${lowest ? "text-emerald-600 text-lg" : ""}">NT$ ${Number(item.price).toLocaleString()}</div>
+          ${lowest ? '<span class="inline-block mt-1 text-[10px] bg-emerald-600 text-white px-2 py-0.5 rounded-full">目前最低價</span>' : ""}
+        </td>
+        <td class="px-4 py-4 text-center">
+          <a href="${escapeAttr(item.url)}" target="_blank" rel="noopener noreferrer"
+             class="inline-block text-xs font-semibold text-blue-600 border border-blue-200 bg-blue-50 hover:bg-blue-600 hover:text-white px-3 py-2 rounded-lg">前往購買 ↗</a>
+        </td>
+      </tr>`;
+    }).join("");
+  }
+
+  function renderSourceStatus(sources) {
+    document.getElementById("sourceStatus").innerHTML = sources.map(s => {
+      const cls = s.ok ? "bg-emerald-50 text-emerald-700 border-emerald-200" : "bg-rose-50 text-rose-700 border-rose-200";
+      const text = s.ok ? `${s.name}：${s.count} 筆` : `${s.name}：連線失敗`;
+      const title = s.error ? ` title="${escapeAttr(s.error)}"` : "";
+      return `<span${title} class="text-xs border px-3 py-1.5 rounded-full ${cls}">${escapeHtml(text)}</span>`;
+    }).join("");
+  }
+
+  function showStatus(message, type) {
+    const el = document.getElementById("status");
+    const cls = {
+      info: "bg-blue-50 text-blue-700 border border-blue-200",
+      ok: "bg-emerald-50 text-emerald-700 border border-emerald-200",
+      warn: "bg-amber-50 text-amber-700 border border-amber-200",
+      error: "bg-rose-50 text-rose-700 border border-rose-200"
+    }[type] || "bg-slate-50 text-slate-700 border";
+    el.className = "text-sm rounded-xl p-3 " + cls;
+    el.textContent = message;
+  }
+
+  function escapeHtml(v) {
+    return String(v ?? "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#039;");
+  }
+
+  function escapeAttr(v) { return escapeHtml(v); }
+</script>
 </body>
 </html>
