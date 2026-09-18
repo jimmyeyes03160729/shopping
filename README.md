@@ -73,7 +73,7 @@ worker/wrangler.toml
 目前：
 
 ```toml
-GEMINI_MODEL = "gemini-2.5-flash"
+GEMINI_MODEL = "gemini-3.6-flash"
 ```
 
 如果你的 Gemini API 可用模型不同，可直接修改。
