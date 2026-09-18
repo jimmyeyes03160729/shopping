@@ -16,7 +16,7 @@ class ProductItem(BaseModel):
     price: float = Field(description="商品數值價格，排除所有符號")
     currency: str = Field(default="TWD", description="幣別")
     matched_group_id: str = Field(description="相同規格的群組 ID，例如 iphone-15-128gb")
-    key_specs: str = Field(description="主要規格摘要字串，例如 128GB / A16 / 黑色，避免使用 dict 產生額外屬性問題")
+    key_specs: str = Field(description="主要規格摘要字串，例如 128GB / A16 / 黑色")
     is_target_match: bool = Field(description="是否與使用者輸入意圖吻合")
 
 class ComparisonResult(BaseModel):
@@ -70,7 +70,7 @@ def run_price_comparison(keyword: str, stores: list[dict]) -> list[ProductItem]:
     """
 
     response = client.models.generate_content(
-        model="gemini-2.5-flash",
+        model="gemini-3.6-flash",
         contents=prompt,
         config={
             "response_mime_type": "application/json",
@@ -78,7 +78,6 @@ def run_price_comparison(keyword: str, stores: list[dict]) -> list[ProductItem]:
         },
     )
 
-    # 安全反序列化回 Pydantic 實例列表
     raw_json = json.loads(response.text)
     result_obj = ComparisonResult.model_validate(raw_json)
     return result_obj.items
