@@ -1,7 +1,7 @@
 const JSON_HEADERS = { "content-type": "application/json; charset=utf-8" };
 const SEARCH_CACHE = new Map();
 const SEARCH_CACHE_TTL_MS = 10 * 60 * 1000;
-const REQUEST_TIMEOUT_MS = 45000;
+const REQUEST_TIMEOUT_MS = 55000;
 const INPUT_USD_PER_MILLION_TOKENS = 0.75;
 const OUTPUT_USD_PER_MILLION_TOKENS = 3.75;
 const MONTHLY_FREE_GOOGLE_SEARCH_REQUESTS = 5000;
@@ -122,7 +122,13 @@ async function handleSearch(request, env) {
       cache_hit: false,
       model: interaction._model_used || env.GEMINI_MODEL || "gemini-3.6-flash",
       mode: "google-search-grounding",
-      usage
+      usage,
+      verification: {
+        candidate_products: Array.isArray(parsed?.products) ? parsed.products.length : 0,
+        verified_products: products.length,
+        citation_sources: searchMeta.sources.length,
+        search_queries: searchMeta.queries.length
+      }
     };
 
     SEARCH_CACHE.set(cacheKey, { savedAt: Date.now(), payload });
@@ -134,85 +140,91 @@ async function handleSearch(request, env) {
 }
 
 async function runGroundedShoppingSearch(keyword, env) {
-  const configured = String(env.GEMINI_MODEL || "gemini-3.6-flash").trim();
-  const models = [...new Set([
-    configured,
-    "gemini-3.6-flash",
-    "gemini-3.8-flash"
-  ].filter(Boolean))];
-
+  const model = String(env.GEMINI_MODEL || "gemini-3.6-flash").trim();
   const prompt = buildPrompt(keyword);
-  let lastError = null;
 
-  for (const model of models) {
-    for (let attempt = 1; attempt <= 2; attempt++) {
-      try {
-        const response = await fetchWithTimeout(
-          "https://generativelanguage.googleapis.com/v1beta/interactions",
-          {
-            method: "POST",
-            headers: {
-              "content-type": "application/json",
-              "x-goog-api-key": env.GEMINI_API_KEY
-            },
-            body: JSON.stringify({
-              model,
-              input: prompt,
-              tools: [{ type: "google_search" }],
-              response_format: {
-                type: "text",
-                mime_type: "application/json",
-                schema: PRODUCT_SCHEMA
-              }
-            })
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      const response = await fetchWithTimeout(
+        "https://generativelanguage.googleapis.com/v1beta/interactions",
+        {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "x-goog-api-key": env.GEMINI_API_KEY
           },
-          REQUEST_TIMEOUT_MS
+          body: JSON.stringify({
+            model,
+            input: prompt,
+            tools: [{ type: "google_search" }],
+            response_format: {
+              type: "text",
+              mime_type: "application/json",
+              schema: PRODUCT_SCHEMA
+            }
+          })
+        },
+        REQUEST_TIMEOUT_MS
+      );
+
+      const text = await response.text();
+
+      if (!response.ok) {
+        const lower = text.toLowerCase();
+
+        if (
+          response.status === 429 &&
+          (
+            lower.includes("exceeded your current quota") ||
+            lower.includes("quota") ||
+            lower.includes("billing")
+          )
+        ) {
+          const error = new Error(
+            "Google Search Grounding 配額不足：請在 Google AI Studio / Google Cloud 將目前 Gemini API 專案升級為 Paid Tier 並啟用 Billing。"
+          );
+          error.fatal = true;
+          throw error;
+        }
+
+        if (response.status === 429) {
+          const error = new Error("Gemini 暫時達到速率限制，請稍後再搜尋。");
+          error.fatal = true;
+          throw error;
+        }
+
+        const error = new Error(
+          `Gemini ${model} HTTP ${response.status}: ${text.slice(0, 260)}`
         );
 
-        const text = await response.text();
-
-        if (!response.ok) {
-          const lower = text.toLowerCase();
-
-          if (
-            response.status === 429 &&
-            (
-              lower.includes("exceeded your current quota") ||
-              lower.includes("quota") ||
-              lower.includes("billing")
-            )
-          ) {
-            throw new Error(
-              "Google Search Grounding 配額不足：請在 Google AI Studio / Google Cloud 將目前 Gemini API 專案升級為 Paid Tier 並啟用 Billing。"
-            );
-          }
-
-          lastError = new Error(
-            `Gemini ${model} HTTP ${response.status}: ${text.slice(0, 220)}`
-          );
-
-          if ([500, 502, 503, 504].includes(response.status) && attempt < 2) {
-            await sleep(700 * attempt);
-            continue;
-          }
-
-          break;
-        }
-
-        const data = JSON.parse(text);
-        data._model_used = model;
-        return data;
-      } catch (error) {
-        lastError = error;
-        if (attempt < 2) {
-          await sleep(700 * attempt);
+        if ([500, 502, 503, 504].includes(response.status) && attempt < 2) {
+          await sleep(900);
           continue;
         }
+
+        throw error;
       }
+
+      const data = JSON.parse(text);
+      data._model_used = model;
+      return data;
+    } catch (error) {
+      if (error?.fatal) throw error;
+
+      if (String(error?.message || "").includes("查詢逾時")) {
+        throw error;
+      }
+
+      if (attempt < 2) {
+        await sleep(900);
+        continue;
+      }
+
+      throw error;
     }
   }
 
-  throw lastError || new Error("Gemini Google Search 查詢失敗");
+  throw new Error("Gemini Google Search 查詢失敗");
 }
 
 function buildPrompt(keyword) {
@@ -221,20 +233,21 @@ function buildPrompt(keyword) {
     `使用者要搜尋的商品：${keyword}`,
     "",
     "請使用 Google Search 搜尋現在可查到的台灣網路購物商品與價格，不限制商城。",
+    "先做廣泛搜尋，再針對有明確價格的主要賣場補查；避免對同一商城重複很多相近查詢。",
+    "整個任務盡量控制在約 6~8 個 Google Search 查詢內，以兼顧速度、成本與覆蓋率。",
     "請優先找台灣可購買的零售商、品牌官方商城、大型電商、量販店與超商線上商城。",
-    "可包含 momo、PChome、Costco、Yahoo購物、Coupang、蝦皮、家樂福、燦坤、全國電子、東森、全聯、屈臣氏、康是美、誠品、UNIQLO、超商商城，以及其他搜尋得到的可靠賣場。",
     "",
     "嚴格規則：",
     "1. 價格必須來自本次 Google Search 可驗證的搜尋來源，不得憑記憶、估價或猜測。",
-    "2. source_url 必須使用本次搜尋結果中的實際來源網址；沒有來源網址的商品不要放入 products。",
-    "3. 只保留能確認商品名稱與目前售價的結果。若來源只提供模糊價格範圍、舊文章估價或論壇討論，不要當作商品價格。",
-    "4. 排除二手、拍賣討論、新聞文章、價格比較文章本身；優先使用實際商城商品頁或商城搜尋頁。",
+    "2. source_url 請填本次搜尋結果中實際支持該價格的商品頁或商城頁網址，不要自行改寫網址。",
+    "3. 只保留能確認商品名稱與目前售價的結果；舊文章估價、論壇討論、新聞價格不要當成商品售價。",
+    "4. 排除二手、拍賣討論、價格比較文章本身；優先使用實際商城商品頁或商城搜尋頁。",
     "5. 搜尋主商品，不要把保護殼、配件、替換零件等不相關商品混進來。",
     "6. 同一商品不同容量、顏色、入數、尺寸、層數等，請拆成不同結果。",
-    "7. specs 請依商品類型動態整理。例如手機可用容量/顏色；衛生紙可用層數/抽數/包數；服飾可用尺寸/顏色。",
-    "8. unit_price_text 若能可靠換算就填，例如「約 NT$0.18/抽」或「約 NT$18/包」；無法可靠換算則填空字串。",
-    "9. 建議整理 8~20 筆品質較高的可驗證結果；若查不到那麼多，不要硬湊。",
-    "10. store 請填賣場名稱；currency 台灣價格填 TWD。",
+    "7. specs 依商品類型動態整理。例如手機用容量/顏色；衛生紙用層數/抽數/包數；服飾用尺寸/顏色。",
+    "8. unit_price_text 只有在規格足以可靠換算時才填，否則填空字串。",
+    "9. 整理 6~12 筆品質較高、可驗證的結果即可；不要為了湊數增加低品質來源。",
+    "10. store 填賣場名稱；台灣價格 currency 填 TWD。",
     "",
     "請直接回傳符合 schema 的 JSON。"
   ].join("\n");
@@ -277,37 +290,120 @@ function extractSearchMetadata(data) {
     ...(Array.isArray(data?.outputs) ? data.outputs : [])
   ];
 
+  function addSource(rawUrl, title = "", snippet = "", origin = "search") {
+    const url = normalizeHttpUrl(rawUrl);
+    if (!url) return;
+
+    const key = canonicalUrlKey(url);
+    if (!key) return;
+
+    const next = {
+      title: cleanText(title),
+      url,
+      snippet: cleanText(snippet),
+      origin
+    };
+
+    const existing = sourceMap.get(key);
+    if (!existing) {
+      sourceMap.set(key, next);
+      return;
+    }
+
+    if (!existing.title && next.title) existing.title = next.title;
+    if (!existing.snippet && next.snippet) existing.snippet = next.snippet;
+    if (existing.origin !== "citation" && origin === "citation") {
+      existing.origin = "citation";
+    }
+  }
+
+  function collectResultSources(value, depth = 0) {
+    if (value == null || depth > 6) return;
+
+    if (Array.isArray(value)) {
+      for (const item of value) collectResultSources(item, depth + 1);
+      return;
+    }
+
+    if (typeof value !== "object") return;
+
+    const url = value.url || value.uri || value.href;
+    if (url) {
+      addSource(
+        url,
+        value.title || value.name || "",
+        value.snippet || value.description || "",
+        "search_result"
+      );
+    }
+
+    for (const child of Object.values(value)) {
+      if (child && typeof child === "object") {
+        collectResultSources(child, depth + 1);
+      }
+    }
+  }
+
+  function collectAnnotations(annotations) {
+    if (!Array.isArray(annotations)) return;
+
+    for (const annotation of annotations) {
+      if (!annotation || typeof annotation !== "object") continue;
+
+      if (
+        annotation.type === "url_citation" ||
+        annotation.url ||
+        annotation.uri
+      ) {
+        addSource(
+          annotation.url || annotation.uri,
+          annotation.title || "",
+          "",
+          "citation"
+        );
+      }
+    }
+  }
+
   for (const step of steps) {
     if (step?.type === "google_search_call") {
       const q =
-        step?.arguments?.query ||
-        step?.arguments?.queries ||
-        step?.arguments?.q;
+        step?.arguments?.queries ??
+        step?.arguments?.query ??
+        step?.arguments?.q ??
+        step?.query;
 
       if (Array.isArray(q)) {
-        for (const item of q) if (item) queries.push(String(item));
-      } else if (q) {
-        queries.push(String(q));
+        for (const item of q) {
+          const query = cleanText(item);
+          if (query) queries.push(query);
+        }
+      } else {
+        const query = cleanText(q);
+        if (query) queries.push(query);
       }
     }
 
     if (step?.type === "google_search_result") {
-      const result = Array.isArray(step?.result) ? step.result : [];
-      for (const item of result) {
-        const url = String(item?.url || "").trim();
-        if (!url) continue;
+      collectResultSources(step?.result);
+    }
 
-        const key = canonicalUrlKey(url);
-        if (!key || sourceMap.has(key)) continue;
-
-        sourceMap.set(key, {
-          title: String(item?.title || "").trim(),
-          url,
-          snippet: String(item?.snippet || "").trim()
-        });
+    if (step?.type === "model_output") {
+      const contents = Array.isArray(step?.content) ? step.content : [];
+      for (const block of contents) {
+        collectAnnotations(block?.annotations);
+        collectAnnotations(block?.citations);
       }
     }
+
+    if (step?.type === "text") {
+      collectAnnotations(step?.annotations);
+      collectAnnotations(step?.citations);
+    }
   }
+
+  collectAnnotations(data?.annotations);
+  collectAnnotations(data?.citations);
 
   return {
     queries: [...new Set(queries)],
@@ -316,28 +412,22 @@ function extractSearchMetadata(data) {
 }
 
 function verifyAndNormalizeProducts(products, sources) {
-  const sourceMap = new Map();
-  for (const source of sources) {
-    const key = canonicalUrlKey(source.url);
-    if (key) sourceMap.set(key, source);
-  }
+  const validSources = (Array.isArray(sources) ? sources : [])
+    .filter((source) => normalizeHttpUrl(source?.url));
 
   const seen = new Set();
   const out = [];
 
-  for (const raw of products) {
+  for (const raw of Array.isArray(products) ? products : []) {
     const price = Number(raw?.price);
     if (!Number.isFinite(price) || price <= 0 || price > 10000000) continue;
-
-    const rawUrl = String(raw?.source_url || "").trim();
-    const key = canonicalUrlKey(rawUrl);
-    const verifiedSource = sourceMap.get(key);
-
-    if (!verifiedSource) continue;
 
     const title = cleanText(raw?.title);
     const store = cleanText(raw?.store);
     if (!title || !store) continue;
+
+    const verifiedSource = resolveVerifiedSource(raw, validSources);
+    if (!verifiedSource) continue;
 
     const specs = sanitizeSpecs(raw?.specs);
     const dedupeKey = [
@@ -361,7 +451,8 @@ function verifyAndNormalizeProducts(products, sources) {
       currency: String(raw?.currency || "TWD").toUpperCase(),
       url: verifiedSource.url,
       source_url: verifiedSource.url,
-      source_title: cleanText(raw?.source_title || verifiedSource.title),
+      source_title: cleanText(verifiedSource.title || raw?.source_title || store),
+      source_origin: verifiedSource.origin || "citation",
       unit_price_text: cleanText(raw?.unit_price_text),
       specs,
       specs_list: Object.entries(specs).map(([label, value]) => ({ label, value }))
@@ -369,6 +460,100 @@ function verifyAndNormalizeProducts(products, sources) {
   }
 
   return out;
+}
+
+function resolveVerifiedSource(raw, sources) {
+  if (!sources.length) return null;
+
+  const rawUrl = normalizeHttpUrl(raw?.source_url);
+  const rawKey = canonicalUrlKey(rawUrl);
+  const rawHost = urlHost(rawUrl);
+  const rawRoot = siteRoot(rawHost);
+  const store = normalizeForMatch(raw?.store);
+  const sourceTitle = normalizeForMatch(raw?.source_title);
+
+  let best = null;
+  let bestScore = -1;
+
+  for (const source of sources) {
+    const sourceUrl = normalizeHttpUrl(source?.url);
+    if (!sourceUrl) continue;
+
+    const sourceKey = canonicalUrlKey(sourceUrl);
+    const sourceHost = urlHost(sourceUrl);
+    const sourceRoot = siteRoot(sourceHost);
+    const title = normalizeForMatch(source?.title);
+
+    let score = 0;
+
+    if (rawKey && sourceKey === rawKey) {
+      score += 1000;
+    } else if (rawHost && sourceHost && rawHost === sourceHost) {
+      score += 600;
+    } else if (rawRoot && sourceRoot && rawRoot === sourceRoot) {
+      score += 420;
+    }
+
+    if (rawUrl && sourceUrl) {
+      score += pathSimilarityScore(rawUrl, sourceUrl);
+    }
+
+    if (sourceTitle && title) {
+      if (title.includes(sourceTitle) || sourceTitle.includes(title)) score += 140;
+    }
+
+    if (store && title && store.length >= 3) {
+      if (title.includes(store) || store.includes(title)) score += 100;
+    }
+
+    if (store && sourceHost) {
+      const compactHost = normalizeForMatch(sourceHost);
+      const storeTokens = merchantTokens(raw?.store);
+      if (storeTokens.some((token) => token.length >= 3 && compactHost.includes(token))) {
+        score += 120;
+      }
+    }
+
+    if (source?.origin === "citation") score += 15;
+
+    if (score > bestScore) {
+      bestScore = score;
+      best = source;
+    }
+  }
+
+  // 有 source_url 時要求同網址/同主站可對應；沒有有效網址時，
+  // 只允許賣場名稱或來源標題明確對上的 citation。
+  const threshold = rawUrl ? 400 : 110;
+  return bestScore >= threshold ? best : null;
+}
+
+function merchantTokens(value) {
+  return cleanText(value)
+    .toLowerCase()
+    .replace(/購物網|購物中心|線上購物|線上|商城|台灣|臺灣|官方/g, " ")
+    .split(/[^a-z0-9\u4e00-\u9fff]+/)
+    .map((x) => normalizeForMatch(x))
+    .filter((x) => x.length >= 2);
+}
+
+function pathSimilarityScore(a, b) {
+  try {
+    const pa = new URL(a).pathname.split("/").filter(Boolean);
+    const pb = new URL(b).pathname.split("/").filter(Boolean);
+    if (!pa.length || !pb.length) return 0;
+
+    let common = 0;
+    const limit = Math.min(pa.length, pb.length);
+    for (let i = 0; i < limit; i++) {
+      if (pa[i] !== pb[i]) break;
+      common++;
+    }
+
+    return Math.min(120, common * 30);
+  } catch {
+    return 0;
+  }
 }
 
 function sanitizeSpecs(specs) {
@@ -404,6 +589,7 @@ function extractUsage(interaction, searchMeta) {
   const inputTokens = Number(usage.total_input_tokens || 0);
   const outputTokens = Number(usage.total_output_tokens || 0);
   const thoughtTokens = Number(usage.total_thought_tokens || 0);
+  const toolUseTokens = Number(usage.total_tool_use_tokens || 0);
   const totalTokens = Number(usage.total_tokens || 0);
 
   let groundingRequests = 0;
@@ -415,20 +601,20 @@ function extractUsage(interaction, searchMeta) {
     }
   }
 
-  // 某些回應可能未填 grounding_tool_count，搜尋步驟可作為保守備援。
   groundingRequests = Math.max(
     groundingRequests,
     Array.isArray(searchMeta?.queries) ? searchMeta.queries.length : 0
   );
 
   const estimatedTokenCostUsd =
-    (inputTokens / 1_000_000) * INPUT_USD_PER_MILLION_TOKENS +
+    ((inputTokens + toolUseTokens) / 1_000_000) * INPUT_USD_PER_MILLION_TOKENS +
     ((outputTokens + thoughtTokens) / 1_000_000) * OUTPUT_USD_PER_MILLION_TOKENS;
 
   return {
     input_tokens: inputTokens,
     output_tokens: outputTokens,
     thought_tokens: thoughtTokens,
+    tool_use_tokens: toolUseTokens,
     total_tokens: totalTokens,
     google_search_requests: groundingRequests,
     estimated_token_cost_usd: Number(estimatedTokenCostUsd.toFixed(8)),
@@ -485,6 +671,47 @@ function parseModelJson(text) {
     if (!match) throw new Error("Gemini 回傳不是有效 JSON");
     return JSON.parse(match[0]);
   }
+}
+
+function normalizeHttpUrl(value) {
+  const raw = cleanText(value);
+  if (!raw) return "";
+
+  try {
+    const url = new URL(raw);
+    if (url.protocol !== "http:" && url.protocol !== "https:") return "";
+    return url.href;
+  } catch {
+    return "";
+  }
+}
+
+function urlHost(value) {
+  try {
+    return new URL(value).hostname.toLowerCase().replace(/^www\./, "");
+  } catch {
+    return "";
+  }
+}
+
+function siteRoot(host) {
+  const value = String(host || "").toLowerCase().replace(/^www\./, "");
+  if (!value) return "";
+
+  const parts = value.split(".").filter(Boolean);
+  if (parts.length <= 2) return value;
+
+  const twoLevelSuffixes = new Set([
+    "com.tw", "net.tw", "org.tw", "idv.tw",
+    "co.uk", "com.hk", "com.cn", "com.au", "co.jp"
+  ]);
+
+  const suffix2 = parts.slice(-2).join(".");
+  if (twoLevelSuffixes.has(suffix2) && parts.length >= 3) {
+    return parts.slice(-3).join(".");
+  }
+
+  return parts.slice(-2).join(".");
 }
 
 function canonicalUrlKey(value) {
