@@ -707,20 +707,36 @@ function naturalSpecSort(a, b) {
 }
 
 function isLikelyRelevantTitle(title, keyword) {
-  const t = normalizeForMatch(title);
+  const cleanTitle = cleanText(title);
+  const t = normalizeForMatch(cleanTitle);
   const k = normalizeForMatch(keyword);
   if (!t || !k) return false;
   if (t.includes(k)) return true;
 
-  const tokens = String(keyword)
+  const rawTokens = String(keyword)
     .toLowerCase()
     .split(/[\s,，/\\|+()\-_]+/)
     .map((x) => normalizeForMatch(x))
     .filter((x) => x.length >= 2);
 
-  if (!tokens.length) return t.includes(k);
-  const hit = tokens.filter((token) => t.includes(token)).length;
-  return hit >= Math.max(1, Math.ceil(tokens.length * 0.6));
+  // 中文沒有空格時，除了整串關鍵字，也拆成 2 字片段。
+  // 例如「舒潔衛生紙」=> 舒潔 / 潔衛 / 衛生 / 生紙。
+  const chineseBigrams = [];
+  const chinese = k.replace(/[a-z0-9]/g, "");
+  if (chinese.length >= 4) {
+    for (let i = 0; i < chinese.length - 1; i++) {
+      chineseBigrams.push(chinese.slice(i, i + 2));
+    }
+  }
+
+  const tokens = [...new Set([...rawTokens, ...chineseBigrams])];
+  if (!tokens.length) return false;
+
+  const hits = tokens.filter((token) => t.includes(token)).length;
+
+  // 有品牌字或核心詞命中即可保留；多詞搜尋要求約一半命中。
+  if (rawTokens.some((token) => token.length >= 2 && t.includes(token))) return true;
+  return hits >= Math.max(1, Math.ceil(tokens.length * 0.45));
 }
 
 function normalizeForMatch(value) {
@@ -788,7 +804,12 @@ function buildSearchUrl(cfg, keyword) {
 }
 
 function cleanText(value) {
-  return decodeHtmlEntities(String(value || "")).replace(/\s+/g, " ").trim();
+  return decodeHtmlEntities(
+    String(value || "")
+      .replace(/<script[\s\S]*?<\/script>/gi, " ")
+      .replace(/<style[\s\S]*?<\/style>/gi, " ")
+      .replace(/<[^>]+>/g, " ")
+  ).replace(/\s+/g, " ").trim();
 }
 
 function parsePrice(value) {
