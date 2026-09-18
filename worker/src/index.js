@@ -1,10 +1,10 @@
 const JSON_HEADERS = { "content-type": "application/json; charset=utf-8" };
 const SEARCH_CACHE = new Map();
 const SEARCH_CACHE_TTL_MS = 10 * 60 * 1000;
-const STORE_FETCH_TIMEOUT_MS = 6500;
-const GEMINI_TIMEOUT_MS = 6500;
-const MAX_PER_STORE = 6;
-const MAX_AI_ITEMS = 70;
+const STORE_FETCH_TIMEOUT_MS = 2800;
+const GEMINI_TIMEOUT_MS = 4500;
+const MAX_PER_STORE = 4;
+const MAX_AI_ITEMS = 48;
 
 const STORE_CONFIGS = {
   momo: {
@@ -120,6 +120,11 @@ export default {
       return handleSearch(request, env);
     }
 
+    if (url.pathname === "/api/enrich") {
+      if (request.method !== "POST") return json({ error: "Method not allowed" }, 405);
+      return handleEnrich(request, env);
+    }
+
     return new Response("Shopping compare API", { status: 200 });
   },
 };
@@ -172,24 +177,9 @@ async function handleSearch(request, env) {
       return json(payload);
     }
 
-    let normalized;
-    let aiFallback = false;
-    let aiError = null;
-
-    if (env.GEMINI_API_KEY) {
-      try {
-        normalized = await normalizeSpecsWithGemini(keyword, rawItems, env);
-      } catch (error) {
-        aiFallback = true;
-        aiError = cleanError(error);
-        normalized = fallbackNormalize(keyword, rawItems);
-      }
-    } else {
-      aiFallback = true;
-      aiError = "未設定 GEMINI_API_KEY，改用本地規格解析";
-      normalized = fallbackNormalize(keyword, rawItems);
-    }
-
+    // 快速搜尋階段不等待 Gemini。先用本地規則整理規格，
+    // 前端顯示價格後再呼叫 /api/enrich 背景精修。
+    const normalized = fallbackNormalize(keyword, rawItems);
     const normalizedMap = new Map(normalized.map((x) => [String(x.id), x]));
     const items = rawItems
       .map((raw) => {
@@ -217,13 +207,43 @@ async function handleSearch(request, env) {
       sources: sourceResults.map((x) => sourceStatus(x, keyword)),
       updated_at: new Date().toISOString(),
       cache_hit: false,
-      ai_fallback: aiFallback,
-      ai_error: aiError,
+      quick_mode: true,
+      specs_pending: Boolean(env.GEMINI_API_KEY && items.length),
     };
 
     SEARCH_CACHE.set(cacheKey, { savedAt: Date.now(), payload });
     cleanupSearchCache();
     return json(payload);
+  } catch (error) {
+    return json({ error: cleanError(error) }, 500);
+  }
+}
+
+async function handleEnrich(request, env) {
+  try {
+    if (!env.GEMINI_API_KEY) return json({ error: "後端尚未設定 GEMINI_API_KEY" }, 400);
+
+    const body = await request.json();
+    const keyword = String(body.keyword || "").trim();
+    const inputItems = Array.isArray(body.items) ? body.items.slice(0, MAX_AI_ITEMS) : [];
+
+    if (!keyword || !inputItems.length) {
+      return json({ error: "缺少 keyword 或 items" }, 400);
+    }
+
+    const rawItems = inputItems
+      .map((x) => ({
+        id: String(x.id || ""),
+        store_id: String(x.store_id || ""),
+        store_name: String(x.store_name || ""),
+        title: cleanText(x.title),
+        price: parsePrice(x.price),
+        url: String(x.url || ""),
+      }))
+      .filter((x) => x.id && x.title);
+
+    const normalized = await normalizeSpecsWithGemini(keyword, rawItems, env);
+    return json({ items: normalized });
   } catch (error) {
     return json({ error: cleanError(error) }, 500);
   }
@@ -386,7 +406,7 @@ async function searchGenericStore(source, keyword) {
   }
 
   let html = await response.text();
-  if (html.length > 2_500_000) html = html.slice(0, 2_500_000);
+  if (html.length > 900_000) html = html.slice(0, 900_000);
 
   const candidates = [
     ...extractJsonLdProducts(html, source, searchUrl),
@@ -436,7 +456,7 @@ function extractEmbeddedJsonProducts(html, source, baseUrl) {
 }
 
 function collectProductObjects(value, source, baseUrl, results, depth, state) {
-  if (results.length >= 20 || depth > 9 || state.count++ > 12000 || value == null) return;
+  if (results.length >= 20 || depth > 9 || state.count++ > 5000 || value == null) return;
 
   if (Array.isArray(value)) {
     for (const item of value) collectProductObjects(item, source, baseUrl, results, depth + 1, state);
@@ -504,7 +524,7 @@ function extractHtmlAnchorProducts(html, source, baseUrl) {
   let match;
   let inspected = 0;
 
-  while ((match = regex.exec(html)) && inspected++ < 1200 && results.length < 24) {
+  while ((match = regex.exec(html)) && inspected++ < 450 && results.length < 24) {
     const attrs = `${match[1]} ${match[3]}`;
     const body = match[4];
     const attrTitle = getHtmlAttribute(attrs, "title") || getHtmlAttribute(attrs, "aria-label");
