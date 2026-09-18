@@ -265,9 +265,9 @@
         .map(item => {
           const ai = map.get(String(item.id));
           if (!ai) return item;
-          if (ai.match === false) return null;
           return {
             ...item,
+            ai_match: ai.match !== false,
             canonical_name: ai.canonical_name || item.canonical_name || item.title,
             specs: ai.specs || item.specs || {}
           };
