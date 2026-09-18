@@ -1,0 +1,70 @@
+name: Run AI Price Comparator
+
+on:
+  workflow_dispatch:
+    inputs:
+      keyword:
+        description: '輸入欲比價的商品關鍵字'
+        required: true
+        default: 'iPhone 15 128G'
+  # 若需要每天固定時間自動比價，可取消下方註解（UTC 時間，此例為每天上午 8:00 台北時間）
+  # schedule:
+  #   - cron: '0 0 * * *'
+
+jobs:
+  compare-prices:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 檢出倉庫代碼
+        uses: actions/checkout@v4
+
+      - name: 設定 Python 環境
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: 安裝專案相依套件
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+
+      - name: 執行比價與規格分析
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          KEYWORD: ${{ github.event.inputs.keyword || 'iPhone 15 128G' }}
+        run: |
+          python - << 'EOF'
+          import os
+          import json
+          from comparator import run_price_comparison
+
+          keyword = os.environ.get("KEYWORD", "iPhone 15 128G")
+          stores_file = "stores.json"
+
+          if not os.path.exists(stores_file):
+              print(f"錯誤：找不到 {stores_file}")
+              exit(1)
+
+          with open(stores_file, "r", encoding="utf-8") as f:
+              stores = json.load(f)
+
+          print(f"開始針對關鍵字進行比價: {keyword}")
+          items = run_price_comparison(keyword, stores)
+
+          results = [item.model_dump() for item in items if item.is_target_match]
+
+          output_file = "comparison_result.json"
+          with open(output_file, "w", encoding="utf-8") as f:
+              json.dump(results, f, ensure_ascii=False, indent=2)
+
+          print(f"比價完成，共解析出 {len(results)} 筆有效商品規格，已寫入 {output_file}")
+          EOF
+
+      - name: 上傳比價結果檔案
+        uses: actions/upload-artifact@v4
+        with:
+          name: price-comparison-results
+          path: comparison_result.json
+          retention-days: 7
