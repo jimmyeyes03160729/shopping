@@ -184,7 +184,7 @@ async function handleSearch(request, env) {
     const items = rawItems
       .map((raw) => {
         const ai = normalizedMap.get(raw.id);
-        if (!ai || ai.match === false) return null;
+        if (!ai) return null;
         return {
           id: raw.id,
           store_id: raw.store_id,
@@ -617,12 +617,12 @@ async function normalizeSpecsWithGemini(keyword, rawItems, env) {
 }
 
 function fallbackNormalize(keyword, rawItems) {
-  const matched = rawItems.filter((item) => isLikelyRelevantTitle(item.title, keyword));
-  const candidates = matched.length ? matched : rawItems;
-
-  return candidates.map((item) => ({
+  // 商城自己的搜尋結果先全部保留，避免因標題格式差異造成整家商城被誤刪。
+  // 是否高度吻合只作為參考，不在快速階段刪除商品。
+  return rawItems.map((item) => ({
     id: item.id,
     match: true,
+    local_relevant: isLikelyRelevantTitle(item.title, keyword),
     canonical_name: item.title,
     specs: extractLocalSpecs(item.title),
   }));
