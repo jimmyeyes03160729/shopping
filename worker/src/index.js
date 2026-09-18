@@ -3,8 +3,8 @@ const SEARCH_CACHE = new Map();
 const SEARCH_CACHE_TTL_MS = 10 * 60 * 1000;
 
 const SOURCE_LABELS = {
-  pchome: "PChome 24h",
-  momo: "momo購物網",
+  pchome: "PChome 24h購物",
+  momo: "momo 購物網",
   shopee: "蝦皮購物",
 };
 
