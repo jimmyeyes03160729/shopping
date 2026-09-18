@@ -1,37 +1,125 @@
 const JSON_HEADERS = { "content-type": "application/json; charset=utf-8" };
 const SEARCH_CACHE = new Map();
 const SEARCH_CACHE_TTL_MS = 10 * 60 * 1000;
+const STORE_FETCH_TIMEOUT_MS = 6500;
+const GEMINI_TIMEOUT_MS = 6500;
+const MAX_PER_STORE = 6;
+const MAX_AI_ITEMS = 70;
 
-const SOURCE_LABELS = {
-  pchome: "PChome 24h購物",
-  momo: "momo 購物網",
-  shopee: "蝦皮購物",
+const STORE_CONFIGS = {
+  momo: {
+    name: "momo 購物網",
+    homepage: "https://www.momoshop.com.tw/",
+    search: "https://www.momoshop.com.tw/search/searchShop.jsp?keyword={keyword}",
+  },
+  pchome: {
+    name: "PChome 24h購物",
+    homepage: "https://24h.pchome.com.tw/",
+    search: "https://24h.pchome.com.tw/search/?q={keyword}",
+  },
+  yahoo: {
+    name: "Yahoo奇摩購物中心",
+    homepage: "https://tw.buy.yahoo.com/",
+    search: "https://tw.buy.yahoo.com/search/product?p={keyword}",
+  },
+  coupang: {
+    name: "Coupang 酷澎",
+    homepage: "https://www.tw.coupang.com/",
+    search: "https://www.tw.coupang.com/search?q={keyword}",
+  },
+  shopee: {
+    name: "蝦皮購物",
+    homepage: "https://shopee.tw/",
+    search: "https://shopee.tw/search?keyword={keyword}",
+  },
+  costco: {
+    name: "Costco 好市多線上購物",
+    homepage: "https://www.costco.com.tw/",
+    search: "https://www.costco.com.tw/search/?text={keyword}",
+  },
+  uniqlo: {
+    name: "UNIQLO 台灣網路商店",
+    homepage: "https://www.uniqlo.com/tw/zh_TW/",
+    search: "https://www.uniqlo.com/tw/zh_TW/search.html?description={keyword}",
+  },
+  eslite: {
+    name: "誠品線上 (Eslite)",
+    homepage: "https://www.eslite.com/",
+    search: "https://www.eslite.com/Search?keyword={keyword}",
+  },
+  pxgo: {
+    name: "PXGo! 全聯線上購",
+    homepage: "https://shop.pxgo.com.tw/",
+    search: "https://shop.pxgo.com.tw/hourArrive/search?keyword={keyword}",
+  },
+  tk3c: {
+    name: "燦坤線上購物 (Tk3C)",
+    homepage: "https://www.tk3c.com/",
+    search: "https://www.tk3c.com/search.aspx?keyword={keyword}",
+  },
+  elife: {
+    name: "全國電子線上購物",
+    homepage: "https://www.elifemall.com.tw/",
+    search: "https://www.elifemall.com.tw/search?keyword={keyword}",
+  },
+  carrefour: {
+    name: "家樂福線上",
+    homepage: "https://online.carrefour.com.tw/",
+    search: "https://online.carrefour.com.tw/zh/search/?q={keyword}",
+  },
+  watsons: {
+    name: "屈臣氏台灣",
+    homepage: "https://www.watsons.com.tw/",
+    search: "https://www.watsons.com.tw/search?text={keyword}",
+  },
+  cosmed: {
+    name: "康是美網購",
+    homepage: "https://shop.cosmed.com.tw/",
+    search: "https://shop.cosmed.com.tw/search?keyword={keyword}",
+  },
+  etmall: {
+    name: "東森購物網",
+    homepage: "https://www.etmall.com.tw/",
+    search: "https://www.etmall.com.tw/Search?keyword={keyword}",
+  },
+  family: {
+    name: "全家",
+    homepage: "https://mart.family.com.tw/v2/official",
+    search: "https://mart.family.com.tw/v2/official/search?keyword={keyword}",
+  },
+  seven: {
+    name: "統一超商",
+    homepage: "https://711go.7-11.com.tw/Home",
+    search: "https://711go.7-11.com.tw/Search?keyword={keyword}",
+  },
 };
+
+const SOURCE_LABELS = Object.fromEntries(
+  Object.entries(STORE_CONFIGS).map(([id, cfg]) => [id, cfg.name])
+);
 
 export default {
   async fetch(request, env) {
     if (request.method === "OPTIONS") {
       return new Response(null, { status: 204, headers: corsHeaders() });
     }
+
     const url = new URL(request.url);
 
     if (url.pathname === "/api/health") {
       return json({
         ok: true,
         gemini: Boolean(env.GEMINI_API_KEY),
-        model: env.GEMINI_MODEL || "gemini-3.5-flash-lite",
-        fallback_models: ["gemini-3.8-flash", "gemini-3.7-flash", "gemini-3.6-flash"],
+        model: env.GEMINI_MODEL || "gemini-3.6-flash",
+        sources: Object.keys(STORE_CONFIGS),
       });
     }
 
     if (url.pathname === "/api/search") {
-      if (request.method !== "POST") {
-        return json({ error: "Method not allowed" }, 405);
-      }
+      if (request.method !== "POST") return json({ error: "Method not allowed" }, 405);
       return handleSearch(request, env);
     }
 
-    if (env.ASSETS) return env.ASSETS.fetch(request);
     return new Response("Shopping compare API", { status: 200 });
   },
 };
@@ -41,12 +129,11 @@ async function handleSearch(request, env) {
     const body = await request.json();
     const keyword = String(body.keyword || "").trim();
     const requestedSources = Array.isArray(body.sources)
-      ? body.sources.filter((x) => SOURCE_LABELS[x])
-      : Object.keys(SOURCE_LABELS);
+      ? body.sources.filter((id) => STORE_CONFIGS[id])
+      : Object.keys(STORE_CONFIGS);
 
     if (!keyword) return json({ error: "請輸入商品關鍵字" }, 400);
-    if (!requestedSources.length) return json({ error: "至少選擇一個商城" }, 400);
-    if (!env.GEMINI_API_KEY) return json({ error: "後端尚未設定 GEMINI_API_KEY" }, 500);
+    if (!requestedSources.length) return json({ error: "沒有可搜尋的賣場" }, 400);
 
     const cacheKey = makeCacheKey(keyword, requestedSources);
     const cached = SEARCH_CACHE.get(cacheKey);
@@ -54,40 +141,56 @@ async function handleSearch(request, env) {
       return json({ ...cached.payload, cache_hit: true });
     }
 
-    const jobs = requestedSources.map(async (source) => {
-      try {
-        const items =
-          source === "pchome"
-            ? await searchPchome(keyword)
-            : source === "momo"
-              ? await searchMomo(keyword)
-              : await searchShopee(keyword);
-        return { source, ok: true, items };
-      } catch (error) {
-        return { source, ok: false, items: [], error: cleanError(error) };
-      }
-    });
+    const sourceResults = await Promise.all(
+      requestedSources.map(async (source) => {
+        try {
+          const items = await searchStore(source, keyword);
+          return { source, ok: true, items };
+        } catch (error) {
+          return { source, ok: false, items: [], error: cleanError(error) };
+        }
+      })
+    );
 
-    const sourceResults = await Promise.all(jobs);
-    let rawItems = sourceResults.flatMap((x) => x.items);
+    let rawItems = sourceResults
+      .flatMap((result) => result.items.slice(0, MAX_PER_STORE))
+      .filter((item) => Number.isFinite(item.price) && item.price > 0 && item.title);
 
-    rawItems = dedupeRawItems(rawItems)
-      .filter((x) => Number.isFinite(x.price) && x.price > 0 && x.title)
-      .slice(0, 36);
+    rawItems = dedupeRawItems(rawItems).slice(0, MAX_AI_ITEMS);
 
     if (!rawItems.length) {
-      return json({
+      const payload = {
         keyword,
         items: [],
         dimensions: [],
-        sources: sourceResults.map(sourceStatus),
-        message: "目前沒有取得可驗證的商城商品資料。",
-      });
+        sources: sourceResults.map((x) => sourceStatus(x, keyword)),
+        message: "目前沒有取得可驗證的商品價格。",
+        updated_at: new Date().toISOString(),
+        cache_hit: false,
+      };
+      SEARCH_CACHE.set(cacheKey, { savedAt: Date.now(), payload });
+      return json(payload);
     }
 
-    const normalized = await normalizeSpecsWithGemini(keyword, rawItems, env);
-    const normalizedMap = new Map(normalized.map((x) => [String(x.id), x]));
+    let normalized;
+    let aiFallback = false;
+    let aiError = null;
 
+    if (env.GEMINI_API_KEY) {
+      try {
+        normalized = await normalizeSpecsWithGemini(keyword, rawItems, env);
+      } catch (error) {
+        aiFallback = true;
+        aiError = cleanError(error);
+        normalized = fallbackNormalize(keyword, rawItems);
+      }
+    } else {
+      aiFallback = true;
+      aiError = "未設定 GEMINI_API_KEY，改用本地規格解析";
+      normalized = fallbackNormalize(keyword, rawItems);
+    }
+
+    const normalizedMap = new Map(normalized.map((x) => [String(x.id), x]));
     const items = rawItems
       .map((raw) => {
         const ai = normalizedMap.get(raw.id);
@@ -107,16 +210,17 @@ async function handleSearch(request, env) {
       })
       .filter(Boolean);
 
-    const dimensions = buildDimensions(items);
-
     const payload = {
       keyword,
       items,
-      dimensions,
-      sources: sourceResults.map(sourceStatus),
+      dimensions: buildDimensions(items),
+      sources: sourceResults.map((x) => sourceStatus(x, keyword)),
       updated_at: new Date().toISOString(),
       cache_hit: false,
+      ai_fallback: aiFallback,
+      ai_error: aiError,
     };
+
     SEARCH_CACHE.set(cacheKey, { savedAt: Date.now(), payload });
     cleanupSearchCache();
     return json(payload);
@@ -125,18 +229,29 @@ async function handleSearch(request, env) {
   }
 }
 
-function sourceStatus(result) {
+function sourceStatus(result, keyword) {
+  const cfg = STORE_CONFIGS[result.source];
   return {
     id: result.source,
-    name: SOURCE_LABELS[result.source],
+    name: cfg?.name || result.source,
     ok: result.ok,
     count: result.items.length,
     error: result.ok ? null : result.error,
-    manual_url:
-      result.source === "shopee"
-        ? "https://shopee.tw/search?keyword={keyword}"
-        : null,
+    manual_url: cfg ? buildSearchUrl(cfg, keyword) : null,
   };
+}
+
+async function searchStore(source, keyword) {
+  if (source === "pchome") return searchPchome(keyword);
+  if (source === "momo") return searchMomo(keyword);
+  if (source === "shopee") {
+    try {
+      return await searchShopee(keyword);
+    } catch {
+      return searchGenericStore(source, keyword);
+    }
+  }
+  return searchGenericStore(source, keyword);
 }
 
 async function searchPchome(keyword) {
@@ -145,32 +260,32 @@ async function searchPchome(keyword) {
   endpoint.searchParams.set("page", "1");
   endpoint.searchParams.set("sort", "rnk/dc");
 
-  const response = await fetch(endpoint, {
+  const response = await fetchWithTimeout(endpoint, {
     headers: browserHeaders("https://24h.pchome.com.tw/"),
   });
-  if (!response.ok) throw new Error(`PChome HTTP ${response.status}`);
 
+  if (!response.ok) throw new Error(`PChome HTTP ${response.status}`);
   const data = await response.json();
   const products = Array.isArray(data.prods) ? data.prods : [];
 
-  return products.slice(0, 12).map((p, index) => {
+  return products.slice(0, MAX_PER_STORE).map((p, index) => {
     const productId = String(p.Id || p.id || "");
     return {
       id: `pchome-${productId || index}`,
       store_id: "pchome",
       store_name: SOURCE_LABELS.pchome,
-      title: String(p.name || ""),
+      title: cleanText(p.name),
       price: parsePrice(p.price),
       url: productId
         ? `https://24h.pchome.com.tw/prod/${encodeURIComponent(productId)}`
-        : `https://24h.pchome.com.tw/search/?q=${encodeURIComponent(keyword)}`,
+        : buildSearchUrl(STORE_CONFIGS.pchome, keyword),
     };
   });
 }
 
 async function searchMomo(keyword) {
   const endpoint = "https://apisearch.momoshop.com.tw/momoSearchCloud/moec/textSearch";
-  const response = await fetch(endpoint, {
+  const response = await fetchWithTimeout(endpoint, {
     method: "POST",
     headers: {
       ...browserHeaders("https://www.momoshop.com.tw/"),
@@ -193,7 +308,7 @@ async function searchMomo(keyword) {
   const data = await response.json();
   const products = data?.rtnSearchData?.goodsInfoList || [];
 
-  return products.slice(0, 12).map((p, index) => {
+  return products.slice(0, MAX_PER_STORE).map((p, index) => {
     const code = String(
       p.goodsCode || p.goodsNo || p.i_code || p.goodsId || p.goodsID || ""
     );
@@ -201,11 +316,11 @@ async function searchMomo(keyword) {
       id: `momo-${code || index}`,
       store_id: "momo",
       store_name: SOURCE_LABELS.momo,
-      title: String(p.goodsName || p.name || ""),
+      title: cleanText(p.goodsName || p.name),
       price: parsePrice(p.goodsPrice ?? p.salePrice ?? p.price),
       url: code
         ? `https://www.momoshop.com.tw/goods/GoodsDetail.jsp?i_code=${encodeURIComponent(code)}`
-        : `https://www.momoshop.com.tw/search/searchShop.jsp?keyword=${encodeURIComponent(keyword)}`,
+        : buildSearchUrl(STORE_CONFIGS.momo, keyword),
     };
   });
 }
@@ -214,16 +329,16 @@ async function searchShopee(keyword) {
   const endpoint = new URL("https://shopee.tw/api/v4/search/search_items");
   endpoint.searchParams.set("by", "relevancy");
   endpoint.searchParams.set("keyword", keyword);
-  endpoint.searchParams.set("limit", "24");
+  endpoint.searchParams.set("limit", String(MAX_PER_STORE));
   endpoint.searchParams.set("newest", "0");
   endpoint.searchParams.set("order", "desc");
   endpoint.searchParams.set("page_type", "search");
   endpoint.searchParams.set("scenario", "PAGE_GLOBAL_SEARCH");
   endpoint.searchParams.set("version", "2");
 
-  const response = await fetch(endpoint, {
+  const response = await fetchWithTimeout(endpoint, {
     headers: {
-      ...browserHeaders(`https://shopee.tw/search?keyword=${encodeURIComponent(keyword)}`),
+      ...browserHeaders(buildSearchUrl(STORE_CONFIGS.shopee, keyword)),
       "x-api-source": "pc",
       "x-requested-with": "XMLHttpRequest",
     },
@@ -237,124 +352,291 @@ async function searchShopee(keyword) {
       ? data.data.items
       : [];
 
-  return rows.slice(0, 12).map((row, index) => {
+  return rows.slice(0, MAX_PER_STORE).map((row, index) => {
     const p = row.item_basic || row;
     const itemId = String(p.itemid || p.item_id || "");
     const shopId = String(p.shopid || p.shop_id || "");
-    const rawPrice = p.price_min ?? p.price ?? p.price_max;
-    const price = normalizeShopeePrice(rawPrice);
-
+    const price = normalizeShopeePrice(p.price_min ?? p.price ?? p.price_max);
     return {
       id: `shopee-${shopId || "s"}-${itemId || index}`,
       store_id: "shopee",
       store_name: SOURCE_LABELS.shopee,
-      title: String(p.name || ""),
+      title: cleanText(p.name),
       price,
       url:
         itemId && shopId
           ? `https://shopee.tw/product/${encodeURIComponent(shopId)}/${encodeURIComponent(itemId)}`
-          : `https://shopee.tw/search?keyword=${encodeURIComponent(keyword)}`,
+          : buildSearchUrl(STORE_CONFIGS.shopee, keyword),
     };
   });
 }
 
-async function normalizeSpecsWithGemini(keyword, rawItems, env) {
-  const primaryModel = env.GEMINI_MODEL || "gemini-3.5-flash-lite";
-  const modelCandidates = [
-    primaryModel,
-    "gemini-3.8-flash",
-    "gemini-3.7-flash",
-    "gemini-3.6-flash",
-  ].filter((model, index, arr) => model && arr.indexOf(model) === index);
+async function searchGenericStore(source, keyword) {
+  const cfg = STORE_CONFIGS[source];
+  const searchUrl = buildSearchUrl(cfg, keyword);
+  const response = await fetchWithTimeout(searchUrl, {
+    headers: browserHeaders(cfg.homepage),
+    redirect: "follow",
+  });
 
-  const prompt = [
-    "你是商品規格正規化引擎。你不能提供、猜測或修改價格與網址。",
-    `使用者搜尋主商品：「${keyword}」`,
-    "請只根據每筆商品的 title 判斷它是否為主商品本體，排除保護殼、貼膜、充電器、配件、二手零件等不相關商品。",
-    "對符合的商品，整理 canonical_name 與 specs。",
-    "specs 必須是動態物件，鍵名使用繁體中文、短且一致，例如：容量、顏色、尺寸、版本、記憶體、儲存空間、連線版本。",
-    "容量值請統一格式，例如 256GB、512GB、1TB；同義顏色請盡量統一，但不要憑空猜測沒有出現在標題中的規格。",
-    "未知規格不要填入。絕對不要新增輸入中不存在的商品。",
-    "回傳 JSON 物件，格式必須是：",
-    '{"items":[{"id":"輸入id","match":true,"canonical_name":"標準商品名","specs":{"容量":"256GB","顏色":"黑色"}}]}',
-    "輸入商品：",
-    JSON.stringify(
-      rawItems.map((x) => ({
-        id: x.id,
-        store: x.store_name,
-        title: x.title,
-      }))
-    ),
-  ].join("\n");
+  if (!response.ok) throw new Error(`${cfg.name} HTTP ${response.status}`);
+  const contentType = response.headers.get("content-type") || "";
+  if (!contentType.includes("text/html") && !contentType.includes("application/xhtml")) {
+    throw new Error(`${cfg.name} 回傳非 HTML 搜尋頁`);
+  }
 
-  let lastError = null;
+  let html = await response.text();
+  if (html.length > 2_500_000) html = html.slice(0, 2_500_000);
 
-  for (const model of modelCandidates) {
-    for (let attempt = 1; attempt <= 1; attempt++) {
-      let response;
-      try {
-        response = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
-          {
-            method: "POST",
-            headers: {
-              "content-type": "application/json",
-              "x-goog-api-key": env.GEMINI_API_KEY,
-            },
-            body: JSON.stringify({
-              contents: [{ parts: [{ text: prompt }] }],
-              generationConfig: {
-                responseMimeType: "application/json",
-              },
-            }),
-          }
-        );
-      } catch (error) {
-        lastError = new Error(`Gemini ${model} network error: ${cleanError(error)}`);
-        break;
-      }
+  const candidates = [
+    ...extractJsonLdProducts(html, source, searchUrl),
+    ...extractEmbeddedJsonProducts(html, source, searchUrl),
+    ...extractHtmlAnchorProducts(html, source, searchUrl),
+  ];
 
-      if (response.ok) {
-        const data = await response.json();
-        const text =
-          data?.candidates?.[0]?.content?.parts?.map((p) => p.text || "").join("") || "";
+  const filtered = candidates
+    .filter((item) => item.title && Number.isFinite(item.price) && item.price > 0)
+    .filter((item) => isLikelyRelevantTitle(item.title, keyword));
 
-        if (!text) {
-          lastError = new Error(`Gemini ${model} 沒有回傳規格分析結果`);
-          break;
-        }
+  return dedupeRawItems(filtered).slice(0, MAX_PER_STORE);
+}
 
-        let parsed;
-        try {
-          parsed = JSON.parse(text);
-        } catch {
-          const match = text.match(/\{[\s\S]*\}/);
-          if (!match) {
-            lastError = new Error(`Gemini ${model} 回傳不是有效 JSON`);
-            break;
-          }
-          parsed = JSON.parse(match[0]);
-        }
+function extractJsonLdProducts(html, source, baseUrl) {
+  const results = [];
+  const regex = /<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
+  let match;
+  let scripts = 0;
 
-        return Array.isArray(parsed?.items) ? parsed.items : [];
-      }
+  while ((match = regex.exec(html)) && scripts++ < 16 && results.length < 20) {
+    try {
+      const parsed = JSON.parse(decodeHtmlEntities(match[1].trim()));
+      collectProductObjects(parsed, source, baseUrl, results, 0, { count: 0 });
+    } catch {}
+  }
 
-      const detail = await response.text();
-      lastError = new Error(
-        `Gemini ${model} HTTP ${response.status}: ${detail.slice(0, 180)}`
-      );
+  return results;
+}
 
-      const retryable = [429, 500, 502, 503, 504].includes(response.status);
-      // 429/5xx 直接換下一個備援模型，避免等待重試拖慢整體搜尋。
-      break;
+function extractEmbeddedJsonProducts(html, source, baseUrl) {
+  const results = [];
+  const regex = /<script[^>]*(?:type=["']application\/json["']|id=["']__NEXT_DATA__["'])[^>]*>([\s\S]*?)<\/script>/gi;
+  let match;
+  let scripts = 0;
+
+  while ((match = regex.exec(html)) && scripts++ < 8 && results.length < 20) {
+    const text = match[1].trim();
+    if (!text || text.length > 1_200_000) continue;
+    try {
+      const parsed = JSON.parse(decodeHtmlEntities(text));
+      collectProductObjects(parsed, source, baseUrl, results, 0, { count: 0 });
+    } catch {}
+  }
+
+  return results;
+}
+
+function collectProductObjects(value, source, baseUrl, results, depth, state) {
+  if (results.length >= 20 || depth > 9 || state.count++ > 12000 || value == null) return;
+
+  if (Array.isArray(value)) {
+    for (const item of value) collectProductObjects(item, source, baseUrl, results, depth + 1, state);
+    return;
+  }
+
+  if (typeof value !== "object") return;
+
+  const candidate = productCandidateFromObject(value, source, baseUrl, results.length);
+  if (candidate) results.push(candidate);
+
+  for (const child of Object.values(value)) {
+    if (child && typeof child === "object") {
+      collectProductObjects(child, source, baseUrl, results, depth + 1, state);
+    }
+  }
+}
+
+function productCandidateFromObject(obj, source, baseUrl, index) {
+  const type = String(obj["@type"] || "");
+  const title = firstText(obj, [
+    "name", "title", "productName", "goodsName", "itemName", "displayName",
+  ]);
+
+  let priceValue = firstValue(obj, [
+    "salePrice", "sellingPrice", "finalPrice", "discountPrice",
+    "currentPrice", "price", "lowPrice",
+  ]);
+
+  if (priceValue == null && obj.offers) {
+    const offers = Array.isArray(obj.offers) ? obj.offers[0] : obj.offers;
+    if (offers && typeof offers === "object") {
+      priceValue = firstValue(offers, ["price", "lowPrice", "salePrice", "priceValue"]);
     }
   }
 
-  throw lastError || new Error("所有 Gemini 備援模型皆無法使用");
+  if (!title || priceValue == null) return null;
+  if (type && !/Product|Offer|ListItem/i.test(type) && !looksProductishObject(obj)) return null;
+
+  const price = parsePrice(priceValue);
+  if (!Number.isFinite(price) || price <= 0 || price > 10_000_000) return null;
+
+  let urlValue = firstText(obj, ["url", "link", "href", "productUrl", "goodsUrl", "detailUrl"]);
+  if (!urlValue && obj.item && typeof obj.item === "object") {
+    urlValue = firstText(obj.item, ["url", "link", "href"]);
+  }
+
+  return makeRawItem(
+    source,
+    title,
+    price,
+    absoluteUrl(urlValue, baseUrl) || baseUrl,
+    `json-${index}`
+  );
 }
 
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+function looksProductishObject(obj) {
+  const keys = Object.keys(obj).join("|").toLowerCase();
+  return /(product|goods|item|sku)/.test(keys);
+}
+
+function extractHtmlAnchorProducts(html, source, baseUrl) {
+  const results = [];
+  const regex = /<a\b([^>]*?)href=["']([^"']+)["']([^>]*)>([\s\S]{0,900}?)<\/a>/gi;
+  let match;
+  let inspected = 0;
+
+  while ((match = regex.exec(html)) && inspected++ < 1200 && results.length < 24) {
+    const attrs = `${match[1]} ${match[3]}`;
+    const body = match[4];
+    const attrTitle = getHtmlAttribute(attrs, "title") || getHtmlAttribute(attrs, "aria-label");
+    const title = cleanText(attrTitle || stripTags(body));
+    if (!title || title.length < 4 || title.length > 240) continue;
+
+    const nearby = html.slice(regex.lastIndex, Math.min(html.length, regex.lastIndex + 700));
+    const price = extractPriceFromText(stripTags(body + " " + nearby));
+    if (!Number.isFinite(price)) continue;
+
+    const url = absoluteUrl(match[2], baseUrl);
+    if (!url) continue;
+
+    results.push(makeRawItem(source, title, price, url, `html-${results.length}`));
+  }
+
+  return results;
+}
+
+function makeRawItem(source, title, price, url, suffix) {
+  return {
+    id: `${source}-${simpleHash(title + "|" + price + "|" + suffix)}`,
+    store_id: source,
+    store_name: SOURCE_LABELS[source],
+    title: cleanText(title),
+    price: Number(price),
+    url,
+  };
+}
+
+function extractPriceFromText(text) {
+  const matches = [];
+  const regex = /(?:NT\$|NTD\s*\$?|售價[:：]?|特價[:：]?|優惠價[:：]?|價格[:：]?|\$)\s*([0-9][0-9,]{1,8})/gi;
+  let match;
+  while ((match = regex.exec(text)) && matches.length < 8) {
+    const n = Number(match[1].replace(/,/g, ""));
+    if (Number.isFinite(n) && n >= 10 && n <= 10_000_000) matches.push(n);
+  }
+  return matches.length ? Math.min(...matches) : NaN;
+}
+
+async function normalizeSpecsWithGemini(keyword, rawItems, env) {
+  const model = env.GEMINI_MODEL || "gemini-3.6-flash";
+  const prompt = [
+    "你是商品規格正規化引擎，不得提供、猜測或修改價格與網址。",
+    `使用者搜尋主商品：「${keyword}」`,
+    "只根據 title 判斷是否為使用者搜尋的主商品本體，型號必須吻合；排除配件、保護殼、貼膜、充電器、二手零件與不同型號。",
+    "整理 canonical_name 與動態 specs。規格鍵名用繁體中文且一致，例如：容量、顏色、尺寸、版本、記憶體、儲存空間、連線版本。",
+    "容量統一成 256GB、512GB、1TB 等格式。未知規格不要填入，不得新增輸入不存在的商品。",
+    '回傳 JSON：{"items":[{"id":"輸入id","match":true,"canonical_name":"標準商品名","specs":{"容量":"256GB","顏色":"黑色"}}]}',
+    "輸入：",
+    JSON.stringify(rawItems.map((x) => ({ id: x.id, store: x.store_name, title: x.title }))),
+  ].join("\n");
+
+  const response = await fetchWithTimeout(
+    `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-goog-api-key": env.GEMINI_API_KEY,
+      },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: { responseMimeType: "application/json" },
+      }),
+    },
+    GEMINI_TIMEOUT_MS
+  );
+
+  if (!response.ok) {
+    const detail = await response.text();
+    throw new Error(`Gemini HTTP ${response.status}: ${detail.slice(0, 180)}`);
+  }
+
+  const data = await response.json();
+  const text = data?.candidates?.[0]?.content?.parts?.map((p) => p.text || "").join("") || "";
+  if (!text) throw new Error("Gemini 沒有回傳規格分析結果");
+
+  let parsed;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    const match = text.match(/\{[\s\S]*\}/);
+    if (!match) throw new Error("Gemini 回傳不是有效 JSON");
+    parsed = JSON.parse(match[0]);
+  }
+
+  return Array.isArray(parsed?.items) ? parsed.items : [];
+}
+
+function fallbackNormalize(keyword, rawItems) {
+  return rawItems
+    .filter((item) => isLikelyRelevantTitle(item.title, keyword))
+    .map((item) => ({
+      id: item.id,
+      match: true,
+      canonical_name: item.title,
+      specs: extractLocalSpecs(item.title),
+    }));
+}
+
+function extractLocalSpecs(title) {
+  const specs = {};
+  const text = String(title || "");
+
+  const ram = text.match(/(\d+(?:\.\d+)?)\s*GB\s*(?:RAM|記憶體)/i);
+  if (ram) specs["記憶體"] = `${ram[1]}GB`;
+
+  const storageMatches = [...text.matchAll(/(\d+(?:\.\d+)?)\s*(TB|GB)\b/gi)]
+    .map((m) => ({ raw: m[0], value: Number(m[1]), unit: m[2].toUpperCase(), index: m.index || 0 }))
+    .filter((x) => !ram || !x.raw.toUpperCase().includes(String(ram[0]).toUpperCase()));
+
+  if (storageMatches.length) {
+    const best = storageMatches
+      .map((x) => ({ ...x, normalized: x.unit === "TB" ? x.value * 1024 : x.value }))
+      .sort((a, b) => b.normalized - a.normalized)[0];
+    specs["容量"] = `${best.value}${best.unit}`;
+  }
+
+  const size = text.match(/(\d+(?:\.\d+)?)\s*(吋|寸|inch)/i);
+  if (size) specs["尺寸"] = `${size[1]}${size[2] === "inch" ? "吋" : size[2]}`;
+
+  const version = text.match(/\b(5G|4G|LTE|Wi-?Fi)\b/i);
+  if (version) specs["版本"] = version[1].toUpperCase().replace("WIFI", "Wi-Fi");
+
+  const color = text.match(
+    /(原色鈦金屬|沙漠色鈦金屬|黑色鈦金屬|白色鈦金屬|宇宙橙色|藏藍色|霧藍色|天藍色|星夜黑|星辰黑|曜石黑|午夜黑|玫瑰金|香檳金|冷白色|雲白色|月霜白|嫩粉色|晨曦粉|[深淺墨霧曜星宇玫瑰香檳冷雲月嫩晨曦]?[黑白藍紅粉銀金灰綠紫橙黃]色)/
+  );
+  if (color) specs["顏色"] = color[1];
+
+  return specs;
 }
 
 function buildDimensions(items) {
@@ -369,11 +651,7 @@ function buildDimensions(items) {
 
   const preferred = ["容量", "儲存空間", "顏色", "尺寸", "版本", "記憶體", "連線版本"];
   return [...map.entries()]
-    .map(([label, values]) => ({
-      key: label,
-      label,
-      values: [...values].sort(naturalSpecSort),
-    }))
+    .map(([label, values]) => ({ key: label, label, values: [...values].sort(naturalSpecSort) }))
     .sort((a, b) => {
       const ai = preferred.indexOf(a.label);
       const bi = preferred.indexOf(b.label);
@@ -396,28 +674,101 @@ function sanitizeSpecs(specs) {
 }
 
 function naturalSpecSort(a, b) {
-  const unit = (v) => {
+  const toGb = (v) => {
     const m = String(v).toUpperCase().match(/([\d.]+)\s*(TB|GB|MB)/);
     if (!m) return null;
     const n = Number(m[1]);
     return m[2] === "TB" ? n * 1024 : m[2] === "GB" ? n : n / 1024;
   };
-  const av = unit(a);
-  const bv = unit(b);
+  const av = toGb(a);
+  const bv = toGb(b);
   if (av !== null && bv !== null) return av - bv;
   return String(a).localeCompare(String(b), "zh-Hant", { numeric: true });
 }
 
-function dedupeRawItems(items) {
-  const seen = new Set();
-  const out = [];
-  for (const item of items) {
-    const key = `${item.store_id}|${item.title}|${item.price}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    out.push(item);
+function isLikelyRelevantTitle(title, keyword) {
+  const t = normalizeForMatch(title);
+  const k = normalizeForMatch(keyword);
+  if (!t || !k) return false;
+  if (t.includes(k)) return true;
+
+  const tokens = String(keyword)
+    .toLowerCase()
+    .split(/[\s,，/\\|+()\-_]+/)
+    .map((x) => normalizeForMatch(x))
+    .filter((x) => x.length >= 2);
+
+  if (!tokens.length) return t.includes(k);
+  const hit = tokens.filter((token) => t.includes(token)).length;
+  return hit >= Math.max(1, Math.ceil(tokens.length * 0.6));
+}
+
+function normalizeForMatch(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\u4e00-\u9fff]+/g, "");
+}
+
+function firstText(obj, keys) {
+  for (const key of keys) {
+    const value = obj?.[key];
+    if (typeof value === "string" && value.trim()) return cleanText(value);
   }
-  return out;
+  return "";
+}
+
+function firstValue(obj, keys) {
+  for (const key of keys) {
+    const value = obj?.[key];
+    if (typeof value === "number" || typeof value === "string") return value;
+    if (value && typeof value === "object") {
+      const nested = firstValue(value, ["value", "amount", "price"]);
+      if (nested != null) return nested;
+    }
+  }
+  return null;
+}
+
+function getHtmlAttribute(attrs, name) {
+  const match = String(attrs || "").match(new RegExp(`${name}=["']([^"']+)["']`, "i"));
+  return match ? decodeHtmlEntities(match[1]) : "";
+}
+
+function stripTags(value) {
+  return decodeHtmlEntities(
+    String(value || "")
+      .replace(/<script[\s\S]*?<\/script>/gi, " ")
+      .replace(/<style[\s\S]*?<\/style>/gi, " ")
+      .replace(/<[^>]+>/g, " ")
+  ).replace(/\s+/g, " ").trim();
+}
+
+function decodeHtmlEntities(value) {
+  return String(value || "")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;|&apos;/g, "'")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&#x2F;/gi, "/")
+    .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)));
+}
+
+function absoluteUrl(value, baseUrl) {
+  if (!value) return "";
+  try {
+    return new URL(String(value), baseUrl).href;
+  } catch {
+    return "";
+  }
+}
+
+function buildSearchUrl(cfg, keyword) {
+  return cfg.search.replace("{keyword}", encodeURIComponent(keyword));
+}
+
+function cleanText(value) {
+  return decodeHtmlEntities(String(value || "")).replace(/\s+/g, " ").trim();
 }
 
 function parsePrice(value) {
@@ -433,14 +784,49 @@ function normalizeShopeePrice(value) {
   return n >= 100000 ? n / 100000 : n;
 }
 
+function dedupeRawItems(items) {
+  const seen = new Set();
+  const out = [];
+  for (const item of items) {
+    const key = `${item.store_id}|${normalizeForMatch(item.title)}|${item.price}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(item);
+  }
+  return out;
+}
+
 function browserHeaders(referer) {
   return {
-    accept: "application/json,text/plain,*/*",
+    accept: "text/html,application/xhtml+xml,application/json,text/plain,*/*",
     "accept-language": "zh-TW,zh;q=0.9,en;q=0.7",
     referer,
     "user-agent":
       "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36",
   };
+}
+
+async function fetchWithTimeout(input, options = {}, timeoutMs = STORE_FETCH_TIMEOUT_MS) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort("timeout"), timeoutMs);
+  try {
+    return await fetch(input, { ...options, signal: controller.signal });
+  } catch (error) {
+    if (controller.signal.aborted) throw new Error("連線逾時");
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function simpleHash(value) {
+  let hash = 2166136261;
+  const text = String(value || "");
+  for (let i = 0; i < text.length; i++) {
+    hash ^= text.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(36);
 }
 
 function makeCacheKey(keyword, sources) {
