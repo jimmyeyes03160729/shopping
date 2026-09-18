@@ -1,32 +1,32 @@
 # 個人智慧比價系統
 
-目前主架構：
+新版架構已改成：
 
-- 前端：`index.html`
+- 前端：GitHub Pages 的 `index.html`
 - 後端：Cloudflare Worker
 - 商城來源：PChome、momo、蝦皮
-- Gemini：只負責商品規格正規化，不負責產生價格或網址
+- Gemini：只負責商品名稱與規格正規化，不產生價格或網址
 
 ## 使用流程
 
 1. 搜尋主商品，例如 `iPhone 18 Pro`
-2. 系統先取得各商城商品資料
-3. Gemini 從商品標題整理動態規格，例如：
+2. 後端取得各商城商品資料
+3. Gemini 從實際商品標題整理動態規格
+4. 首頁自動產生規格選項，例如：
    - 容量：256GB / 512GB / 1TB
    - 顏色：黑色 / 白色 / 原色鈦金屬
-   - 其他商品也可自動出現尺寸、版本、記憶體等欄位
-4. 首頁自動產生可點選的規格選項
-5. 選擇規格後，只顯示符合該組規格的商城價格，並標示目前最低價
+   - 其他商品也能自動產生尺寸、版本、記憶體、連線版本等欄位
+5. 點選需要的規格後，只顯示符合該組規格的商城價格並標示最低價
 
-## 為什麼首頁沒有 Gemini Key
+## Gemini Key 不再放首頁
 
-不要把 Gemini API Key 寫在 GitHub Pages 或 JavaScript 裡。即使網址只有自己使用，瀏覽器仍能直接看到原始碼中的 Key。
+Gemini API Key 不會出現在 `index.html`，也不儲存在瀏覽器。
 
-本專案改成把 Key 放在 Cloudflare Worker Secret，首頁不需要輸入 Key。
+Key 改放 Cloudflare Worker Secret，因此即使 GitHub Pages 是公開原始碼，也看不到你的 Gemini Key。
 
-## Cloudflare Worker 部署
+## 第一次部署 Cloudflare Worker
 
-先安裝 Node.js，之後：
+本機安裝 Node.js 後執行：
 
 ```bash
 cd worker
@@ -36,56 +36,63 @@ npx wrangler secret put GEMINI_API_KEY
 npm run deploy
 ```
 
-輸入 `wrangler secret put GEMINI_API_KEY` 後，把你的 Gemini API Key 貼進終端機。
+在 `wrangler secret put GEMINI_API_KEY` 時貼入你的 Gemini API Key。
 
-部署完成後會取得類似：
+部署完成後 Cloudflare 會給你一個 Worker 網址，例如：
 
 ```text
 https://shopping-compare-api.<你的帳號>.workers.dev
 ```
 
-目前 `wrangler.toml` 已設定把專案根目錄當作靜態資源，因此最簡單的使用方式是直接用這個 Worker 網址開啟網站。這樣 `index.html` 中：
+## 把 GitHub Pages 接到 Worker
+
+打開 `index.html`，找到：
 
 ```js
 const API_BASE_URL = "";
 ```
 
-不需要修改。
-
-## 若仍要使用 GitHub Pages
-
-如果你希望前端繼續放 GitHub Pages，也可以把 `index.html` 裡的：
-
-```js
-const API_BASE_URL = "";
-```
-
-改成：
+改成剛取得的 Worker 網址：
 
 ```js
 const API_BASE_URL = "https://shopping-compare-api.<你的帳號>.workers.dev";
 ```
 
-如果跨網域使用，Worker 需再加入允許該 GitHub Pages 網域的 CORS 設定。
+提交後，原本 GitHub Pages 網址就可以直接使用，而且首頁不需要再輸入 Gemini Key。
+
+Worker 已包含 CORS，因此 GitHub Pages 可以跨網域呼叫。
 
 ## Gemini 模型
 
-預設模型在 `worker/wrangler.toml`：
+預設模型設定在：
+
+```text
+worker/wrangler.toml
+```
+
+目前：
 
 ```toml
 GEMINI_MODEL = "gemini-2.5-flash"
 ```
 
-可依你的 Gemini API 可用模型調整。
+如果你的 Gemini API 可用模型不同，可直接修改。
 
-## 資料可靠性原則
+## 資料可靠性
 
-- 價格：商城搜尋資料
-- 商品網址：商城搜尋結果
-- 型號 / 容量 / 顏色：Gemini 根據實際商品標題整理
-- Gemini 不會收到「請猜價格」的任務
-- 某商城被反爬或 API 改版時，首頁會顯示該商城連線失敗，而不是補一個 AI 猜的價格
+新版原則：
 
-## 舊檔案
+- 價格：商城資料
+- 商品網址：商城資料
+- 商品規格：Gemini 根據實際商品標題整理
+- Gemini 不會被要求猜價格
+- 某商城被反爬或搜尋 API 改版時，前端會顯示該商城連線失敗，不會補一個 AI 猜測價格
 
-`app.py` 與 `comparator.py` 保留作為相容提示，但主要版本已改為 `index.html + worker/src/index.js`。
+## 主要檔案
+
+- `index.html`：搜尋、規格按鈕、價格比較
+- `worker/src/index.js`：商城搜尋 + Gemini 規格正規化
+- `worker/wrangler.toml`：Cloudflare Worker 設定
+- `worker/package.json`：Worker 部署工具
+
+`app.py` 與 `comparator.py` 已停止作為主要流程使用，避免舊版 AI 猜價邏輯繼續被誤用。
