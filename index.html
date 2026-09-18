@@ -37,7 +37,7 @@
     <section class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-4">
       <div>
         <h2 class="text-lg font-bold">固定賣場</h2>
-        <p class="text-xs text-slate-500 mt-1">賣場清單固定，不提供自行新增。綠色標籤代表目前可直接加入自動比價。</p>
+        <p class="text-xs text-slate-500 mt-1">17 家固定賣場全部會自動嘗試抓價；若網站擋住或頁面改版，資料來源狀態會顯示失敗並保留手動搜尋入口。</p>
       </div>
       <div id="fixedStoreList" class="grid sm:grid-cols-2 lg:grid-cols-3 gap-2"></div>
     </section>
@@ -46,7 +46,7 @@
       <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
         <div>
           <h2 class="text-lg font-bold">其他固定賣場快速搜尋</h2>
-          <p class="text-xs text-slate-500 mt-1">尚未建立自動抓價介面的賣場，先提供搜尋入口。</p>
+          <p class="text-xs text-slate-500 mt-1">自動抓價失敗時，可從資料來源狀態直接開啟該賣場搜尋。</p>
         </div>
       </div>
       <div id="fixedLinks" class="flex flex-wrap gap-2"></div>
@@ -108,21 +108,21 @@
   const FIXED_STORES = [
     { id: "momo", name: "momo 購物網", mode: "auto", homepage: "https://www.momoshop.com.tw/" },
     { id: "pchome", name: "PChome 24h購物", mode: "auto", homepage: "https://24h.pchome.com.tw/" },
-    { id: "yahoo", name: "Yahoo奇摩購物中心", mode: "manual", homepage: "https://tw.buy.yahoo.com/" },
-    { id: "coupang", name: "Coupang 酷澎", mode: "manual", homepage: "https://www.tw.coupang.com/" },
+    { id: "yahoo", name: "Yahoo奇摩購物中心", mode: "auto", homepage: "https://tw.buy.yahoo.com/" },
+    { id: "coupang", name: "Coupang 酷澎", mode: "auto", homepage: "https://www.tw.coupang.com/" },
     { id: "shopee", name: "蝦皮購物", mode: "auto", homepage: "https://shopee.tw/" },
-    { id: "costco", name: "Costco 好市多線上購物", mode: "manual", homepage: "https://www.costco.com.tw/" },
-    { id: "uniqlo", name: "UNIQLO 台灣網路商店", mode: "manual", homepage: "https://www.uniqlo.com/tw/zh_TW/" },
-    { id: "eslite", name: "誠品線上 (Eslite)", mode: "manual", homepage: "https://www.eslite.com/" },
-    { id: "pxgo", name: "PXGo! 全聯線上購", mode: "manual", homepage: "https://www.pxmart.com.tw/" },
-    { id: "tk3c", name: "燦坤線上購物 (Tk3C)", mode: "manual", homepage: "https://www.tk3c.com/" },
-    { id: "elife", name: "全國電子線上購物", mode: "manual", homepage: "https://www.elifemall.com.tw/" },
-    { id: "carrefour", name: "家樂福線上", mode: "manual", homepage: "https://online.carrefour.com.tw/" },
-    { id: "watsons", name: "屈臣氏台灣", mode: "manual", homepage: "https://www.watsons.com.tw/" },
-    { id: "cosmed", name: "康是美網購", mode: "manual", homepage: "https://shop.cosmed.com.tw/" },
-    { id: "etmall", name: "東森購物網", mode: "manual", homepage: "https://www.etmall.com.tw/" },
-    { id: "family", name: "全家", mode: "manual", homepage: "https://mart.family.com.tw/v2/official" },
-    { id: "seven", name: "統一超商", mode: "manual", homepage: "https://711go.7-11.com.tw/Home" }
+    { id: "costco", name: "Costco 好市多線上購物", mode: "auto", homepage: "https://www.costco.com.tw/" },
+    { id: "uniqlo", name: "UNIQLO 台灣網路商店", mode: "auto", homepage: "https://www.uniqlo.com/tw/zh_TW/" },
+    { id: "eslite", name: "誠品線上 (Eslite)", mode: "auto", homepage: "https://www.eslite.com/" },
+    { id: "pxgo", name: "PXGo! 全聯線上購", mode: "auto", homepage: "https://www.pxmart.com.tw/" },
+    { id: "tk3c", name: "燦坤線上購物 (Tk3C)", mode: "auto", homepage: "https://www.tk3c.com/" },
+    { id: "elife", name: "全國電子線上購物", mode: "auto", homepage: "https://www.elifemall.com.tw/" },
+    { id: "carrefour", name: "家樂福線上", mode: "auto", homepage: "https://online.carrefour.com.tw/" },
+    { id: "watsons", name: "屈臣氏台灣", mode: "auto", homepage: "https://www.watsons.com.tw/" },
+    { id: "cosmed", name: "康是美網購", mode: "auto", homepage: "https://shop.cosmed.com.tw/" },
+    { id: "etmall", name: "東森購物網", mode: "auto", homepage: "https://www.etmall.com.tw/" },
+    { id: "family", name: "全家", mode: "auto", homepage: "https://mart.family.com.tw/v2/official" },
+    { id: "seven", name: "統一超商", mode: "auto", homepage: "https://711go.7-11.com.tw/Home" }
   ];
 
   const AUTO_SOURCE_IDS = FIXED_STORES.filter(x => x.mode === "auto").map(x => x.id);
@@ -333,25 +333,9 @@
   }
 
   function renderFixedLinks(keyword) {
-    const manualStores = FIXED_STORES.filter(store => store.mode !== "auto");
     const section = document.getElementById("fixedLinksSection");
-    const box = document.getElementById("fixedLinks");
-
-    if (!keyword || !manualStores.length) {
-      section.classList.add("hidden");
-      box.innerHTML = "";
-      return;
-    }
-
-    section.classList.remove("hidden");
-    box.innerHTML = manualStores.map(store => {
-      const query = encodeURIComponent(store.name + " " + keyword);
-      const href = "https://www.google.com/search?q=" + query;
-      return `<a href="${escapeAttr(href)}" target="_blank" rel="noopener noreferrer"
-        class="inline-block border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-600 hover:text-white px-3 py-2 rounded-xl text-sm font-semibold">
-        ${escapeHtml(store.name)} ↗
-      </a>`;
-    }).join("");
+    section.classList.add("hidden");
+    document.getElementById("fixedLinks").innerHTML = "";
   }
 
   function showStatus(message, type) {
