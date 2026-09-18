@@ -16,8 +16,11 @@ class ProductItem(BaseModel):
     price: float = Field(description="商品數值價格，排除所有符號")
     currency: str = Field(default="TWD", description="幣別")
     matched_group_id: str = Field(description="相同規格的群組 ID，例如 iphone-15-128gb")
-    key_specs: dict[str, str] = Field(description="規格鍵值對，如容量、RAM、顏色、型號")
+    key_specs: str = Field(description="主要規格摘要字串，例如 128GB / A16 / 黑色，避免使用 dict 產生額外屬性問題")
     is_target_match: bool = Field(description="是否與使用者輸入意圖吻合")
+
+class ComparisonResult(BaseModel):
+    items: list[ProductItem] = Field(description="解析與比價後的商品列表")
 
 def fetch_page_text(url: str) -> str:
     """抓取網頁純文字，過濾雜訊降低 Token 消耗"""
@@ -32,7 +35,6 @@ def fetch_page_text(url: str) -> str:
             soup = BeautifulSoup(res.text, "html.parser")
             for tag in soup(["script", "style", "nav", "footer", "header", "noscript"]):
                 tag.decompose()
-            # 截取前 4000 字元避免超過單次搜尋結果的有效長度
             text = " ".join(soup.stripped_strings)
             return text[:4000]
     except Exception as e:
@@ -62,7 +64,7 @@ def run_price_comparison(keyword: str, stores: list[dict]) -> list[ProductItem]:
     任務需求：
     1. 從每個商城中提取與關鍵字最相關的前 2~3 個商品。
     2. 提取出乾淨的價格（純數字）。
-    3. 解析詳細規格（如儲存空間、處理器、尺寸、型號）。
+    3. 解析詳細規格（儲存空間、處理器、尺寸、型號等）組合成文字字串。
     4. 將「實體規格完全相同/對等」的商品指定相同的 matched_group_id。
     5. 過濾掉配件、不相關推薦或缺貨項目（標記 is_target_match = false）。
     """
@@ -72,7 +74,11 @@ def run_price_comparison(keyword: str, stores: list[dict]) -> list[ProductItem]:
         contents=prompt,
         config={
             "response_mime_type": "application/json",
-            "response_schema": list[ProductItem],
+            "response_schema": ComparisonResult,
         },
     )
-    return response.parsed
+
+    # 安全反序列化回 Pydantic 實例列表
+    raw_json = json.loads(response.text)
+    result_obj = ComparisonResult.model_validate(raw_json)
+    return result_obj.items
