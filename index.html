@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>個人智慧比價系統</title>
+  <title>AI 即時全網比價</title>
   <script src="https://cdn.tailwindcss.com"></script>
 </head>
 <body class="bg-slate-50 text-slate-800 min-h-screen">
@@ -11,325 +11,280 @@
     <header class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
       <div class="flex flex-col lg:flex-row lg:items-end justify-between gap-4">
         <div>
-          <h1 class="text-2xl font-bold">🛍️ 個人智慧比價系統</h1>
-          <p class="text-sm text-slate-500 mt-1">先搜尋主商品，再選容量、顏色等規格，查看各商城同規格價格。</p>
+          <h1 class="text-2xl font-bold">🛍️ AI 即時全網比價</h1>
+          <p class="text-sm text-slate-500 mt-1">
+            使用 Gemini + Google Search 搜尋目前網路上的商品、規格與價格，不限制特定商城。
+          </p>
         </div>
-        <div class="flex gap-2 text-xs">
-          <span id="backendBadge" class="px-3 py-1.5 rounded-full bg-slate-100 text-slate-500">檢查服務中…</span>
-        </div>
+        <span id="backendBadge" class="text-xs px-3 py-1.5 rounded-full bg-slate-100 text-slate-500">
+          檢查服務中…
+        </span>
       </div>
     </header>
 
     <section class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-4">
       <div>
         <label class="text-sm font-semibold">商品名稱</label>
-        <p class="text-xs text-slate-500 mt-1">不需要先輸入容量或顏色，例如直接搜尋「iPhone 18 Pro」。</p>
+        <p class="text-xs text-slate-500 mt-1">
+          直接輸入主商品即可，例如「舒潔衛生紙」、「iPhone 18 Pro」、「Sony WH-1000XM6」。
+        </p>
       </div>
+
       <div class="flex flex-col sm:flex-row gap-2">
-        <input id="keywordInput" class="flex-1 border rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-emerald-500"
-               placeholder="例如：iPhone 18 Pro、Sony WH-1000XM6" />
-        <button id="searchBtn" class="bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 text-white font-semibold px-6 py-3 rounded-xl"
-                onclick="runSearch()">開始搜尋</button>
+        <input id="keywordInput"
+               class="flex-1 border rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-emerald-500"
+               placeholder="輸入想比價的商品" />
+        <button id="searchBtn"
+                onclick="runSearch()"
+                class="bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 text-white font-semibold px-6 py-3 rounded-xl">
+          開始搜尋
+        </button>
       </div>
+
       <div id="status" class="hidden text-sm rounded-xl p-3"></div>
     </section>
 
-    <section class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-4">
-      <div>
-        <h2 class="text-lg font-bold">固定賣場</h2>
-        <p class="text-xs text-slate-500 mt-1">17 家固定賣場全部會自動嘗試抓價；若網站擋住或頁面改版，資料來源狀態會顯示失敗並保留手動搜尋入口。</p>
-      </div>
-      <div id="fixedStoreList" class="grid sm:grid-cols-2 lg:grid-cols-3 gap-2"></div>
-    </section>
-
-    <section id="fixedLinksSection" class="hidden bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
-      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
+    <section id="summarySection"
+             class="hidden bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+      <div class="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
         <div>
-          <h2 class="text-lg font-bold">其他固定賣場快速搜尋</h2>
-          <p class="text-xs text-slate-500 mt-1">自動抓價失敗時，可從資料來源狀態直接開啟該賣場搜尋。</p>
+          <h2 class="text-lg font-bold">搜尋摘要</h2>
+          <p id="summaryText" class="text-sm text-slate-600 mt-2 leading-6"></p>
         </div>
+        <div id="metaText" class="text-xs text-slate-400 whitespace-nowrap"></div>
       </div>
-      <div id="fixedLinks" class="flex flex-wrap gap-2"></div>
     </section>
 
-    <section id="filterSection" class="hidden bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-5">
+    <section id="filterSection"
+             class="hidden bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-5">
       <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
         <div>
           <h2 class="text-lg font-bold">規格篩選</h2>
-          <p class="text-xs text-slate-500">系統會依搜尋結果自動產生規格欄位。</p>
+          <p class="text-xs text-slate-500 mt-1">
+            規格會依商品類型自動產生，例如容量、顏色、層數、抽數、包數、尺寸。
+          </p>
         </div>
-        <button onclick="clearFilters()" class="text-xs border px-3 py-1.5 rounded-lg hover:bg-slate-50">清除篩選</button>
+        <button onclick="clearFilters()"
+                class="text-xs border px-3 py-1.5 rounded-lg hover:bg-slate-50">
+          清除篩選
+        </button>
       </div>
       <div id="filters" class="space-y-4"></div>
     </section>
 
-    <section id="sourceSection" class="hidden bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
-      <h2 class="text-lg font-bold mb-3">資料來源狀態</h2>
-      <div id="sourceStatus" class="flex flex-wrap gap-2"></div>
-    </section>
-
-    <section id="resultSection" class="hidden bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-4">
+    <section id="resultSection"
+             class="hidden bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-4">
       <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <h2 class="text-lg font-bold">比價結果</h2>
           <p id="resultSummary" class="text-xs text-slate-500 mt-1"></p>
         </div>
-        <span class="text-xs px-3 py-1.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">最低價以目前篩選結果計算</span>
+        <span class="text-xs px-3 py-1.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+          僅顯示有 Google Search 來源的價格
+        </span>
       </div>
 
       <div class="overflow-x-auto">
         <table class="min-w-full text-sm">
           <thead class="bg-slate-50 border-y">
             <tr>
-              <th class="text-left px-4 py-3">商城</th>
+              <th class="text-left px-4 py-3">賣場</th>
               <th class="text-left px-4 py-3">商品</th>
               <th class="text-left px-4 py-3">規格</th>
               <th class="text-left px-4 py-3">價格</th>
-              <th class="text-center px-4 py-3">連結</th>
+              <th class="text-left px-4 py-3">單位價格</th>
+              <th class="text-center px-4 py-3">來源</th>
             </tr>
           </thead>
           <tbody id="resultBody"></tbody>
         </table>
       </div>
     </section>
+
+    <section id="sourcesSection"
+             class="hidden bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-4">
+      <div>
+        <h2 class="text-lg font-bold">Google Search 搜尋來源</h2>
+        <p class="text-xs text-slate-500 mt-1">
+          下列網址是本次 Gemini 搜尋實際取得的網頁來源。
+        </p>
+      </div>
+
+      <div id="searchQueries" class="flex flex-wrap gap-2"></div>
+      <div id="sourceList" class="grid md:grid-cols-2 gap-2"></div>
+    </section>
   </main>
 
 <script>
-  // 若前端與 Worker 部署在同一個 Cloudflare Worker，保持空字串即可。
-  // 若前端仍放 GitHub Pages，請改成你的 Worker 網址，例如：
-  // const API_BASE_URL = "https://shopping-compare-api.xxx.workers.dev";
   const API_BASE_URL = "https://shopping-compare-api.jimmy-shopping.workers.dev";
 
   let allItems = [];
   let dimensions = [];
   let selected = {};
-  let lastKeyword = "";
-
-  const FIXED_STORES = [
-    { id: "momo", name: "momo 購物網", mode: "auto", homepage: "https://www.momoshop.com.tw/" },
-    { id: "pchome", name: "PChome 24h購物", mode: "auto", homepage: "https://24h.pchome.com.tw/" },
-    { id: "yahoo", name: "Yahoo奇摩購物中心", mode: "auto", homepage: "https://tw.buy.yahoo.com/" },
-    { id: "coupang", name: "Coupang 酷澎", mode: "auto", homepage: "https://www.tw.coupang.com/" },
-    { id: "shopee", name: "蝦皮購物", mode: "auto", homepage: "https://shopee.tw/" },
-    { id: "costco", name: "Costco 好市多線上購物", mode: "auto", homepage: "https://www.costco.com.tw/" },
-    { id: "uniqlo", name: "UNIQLO 台灣網路商店", mode: "auto", homepage: "https://www.uniqlo.com/tw/zh_TW/" },
-    { id: "eslite", name: "誠品線上 (Eslite)", mode: "auto", homepage: "https://www.eslite.com/" },
-    { id: "pxgo", name: "PXGo! 全聯線上購", mode: "auto", homepage: "https://www.pxmart.com.tw/" },
-    { id: "tk3c", name: "燦坤線上購物 (Tk3C)", mode: "auto", homepage: "https://www.tk3c.com/" },
-    { id: "elife", name: "全國電子線上購物", mode: "auto", homepage: "https://www.elifemall.com.tw/" },
-    { id: "carrefour", name: "家樂福線上", mode: "auto", homepage: "https://online.carrefour.com.tw/" },
-    { id: "watsons", name: "屈臣氏台灣", mode: "auto", homepage: "https://www.watsons.com.tw/" },
-    { id: "cosmed", name: "康是美網購", mode: "auto", homepage: "https://shop.cosmed.com.tw/" },
-    { id: "etmall", name: "東森購物網", mode: "auto", homepage: "https://www.etmall.com.tw/" },
-    { id: "family", name: "全家", mode: "auto", homepage: "https://mart.family.com.tw/v2/official" },
-    { id: "seven", name: "統一超商", mode: "auto", homepage: "https://711go.7-11.com.tw/Home" }
-  ];
-
-  const AUTO_SOURCE_IDS = FIXED_STORES.filter(x => x.mode === "auto").map(x => x.id);
+  let lastData = null;
 
   window.addEventListener("load", () => {
-    document.getElementById("keywordInput").addEventListener("keydown", e => {
-      if (e.key === "Enter") runSearch();
+    document.getElementById("keywordInput").addEventListener("keydown", event => {
+      if (event.key === "Enter") runSearch();
     });
-    renderFixedStores();
     checkHealth();
   });
 
   async function checkHealth() {
     const badge = document.getElementById("backendBadge");
+
     try {
-      const res = await fetch(API_BASE_URL + "/api/health", {cache:"no-store"});
-      const text = await res.text();
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      let data;
-      try {
-        data = JSON.parse(text);
-      } catch {
-        throw new Error("後端尚未回傳 API JSON");
-      }
-      if (data.ok && data.gemini) {
-        badge.textContent = "後端服務正常";
-        badge.className = "px-3 py-1.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200";
+      const response = await fetch(API_BASE_URL + "/api/health", { cache: "no-store" });
+      const data = await response.json();
+
+      if (response.ok && data.ok && data.gemini) {
+        badge.textContent = "Google Search 比價服務正常";
+        badge.className =
+          "text-xs px-3 py-1.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200";
       } else {
         badge.textContent = "後端未設定 Gemini";
-        badge.className = "px-3 py-1.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200";
+        badge.className =
+          "text-xs px-3 py-1.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200";
       }
     } catch {
       badge.textContent = "尚未連接後端";
-      badge.className = "px-3 py-1.5 rounded-full bg-rose-50 text-rose-700 border border-rose-200";
+      badge.className =
+        "text-xs px-3 py-1.5 rounded-full bg-rose-50 text-rose-700 border border-rose-200";
     }
   }
 
   async function runSearch() {
     const keyword = document.getElementById("keywordInput").value.trim();
     if (!keyword) return showStatus("請先輸入商品名稱。", "warn");
-    lastKeyword = keyword;
 
-    const btn = document.getElementById("searchBtn");
-    btn.disabled = true;
-    btn.textContent = "搜尋中…";
-    showStatus("正在取得商城商品資料並整理規格，價格不由 AI 產生。", "info");
+    const button = document.getElementById("searchBtn");
+    button.disabled = true;
+    button.textContent = "搜尋中…";
+
+    hideResults();
+    showStatus(
+      "Gemini 正在使用 Google Search 搜尋目前的網路商品與價格，通常需要數秒。",
+      "info"
+    );
+
+    const startedAt = performance.now();
 
     try {
-      const res = await fetch(API_BASE_URL + "/api/search", {
+      const response = await fetch(API_BASE_URL + "/api/search", {
         method: "POST",
-        headers: {"Content-Type":"application/json"},
-        body: JSON.stringify({ keyword, sources: AUTO_SOURCE_IDS })
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ keyword })
       });
 
-      const responseText = await res.text();
+      const responseText = await response.text();
       let data;
+
       try {
         data = JSON.parse(responseText);
       } catch {
-        if (responseText.trim().startsWith("<")) {
-          throw new Error("Cloudflare Worker 尚未就緒，請稍候幾分鐘後重新整理再試");
-        }
-        throw new Error("後端回傳格式異常");
+        throw new Error(
+          responseText.trim().startsWith("<")
+            ? "Cloudflare Worker 尚未就緒，請稍候後再試"
+            : "後端回傳格式異常"
+        );
       }
 
-      if (!res.ok) throw new Error(data.error || `搜尋失敗（HTTP ${res.status}）`);
+      if (!response.ok) {
+        throw new Error(data.error || `搜尋失敗（HTTP ${response.status}）`);
+      }
 
-      allItems = Array.isArray(data.items) ? data.items : [];
+      const seconds = ((performance.now() - startedAt) / 1000).toFixed(1);
+
+      lastData = data;
+      allItems = Array.isArray(data.products)
+        ? data.products
+        : Array.isArray(data.items)
+          ? data.items
+          : [];
       dimensions = Array.isArray(data.dimensions) ? data.dimensions : [];
       selected = {};
 
-      renderSourceStatus(data.sources || []);
-      renderFixedLinks(keyword);
+      renderSummary(data, seconds);
       renderFilters();
       renderResults();
+      renderSources(data);
 
-      document.getElementById("sourceSection").classList.remove("hidden");
+      document.getElementById("summarySection").classList.remove("hidden");
+      document.getElementById("sourcesSection").classList.remove("hidden");
 
       if (!allItems.length) {
         document.getElementById("filterSection").classList.add("hidden");
         document.getElementById("resultSection").classList.add("hidden");
-        showStatus(data.message || "沒有找到可驗證的商品。", "warn");
-      } else {
-        document.getElementById("filterSection").classList.toggle("hidden", dimensions.length === 0);
-        document.getElementById("resultSection").classList.remove("hidden");
+
         showStatus(
-          `找到 ${allItems.length} 筆結果，價格已先顯示。${data.cache_hit ? "（使用快取）" : ""}${data.specs_pending ? " AI 正在背景整理規格…" : ""}`,
-          "ok"
+          data.source_count
+            ? "Google Search 有找到相關來源，但沒有找到同時具備可驗證商品名稱、價格與來源網址的商品。"
+            : "這次 Google Search 沒有找到可驗證的商品價格。",
+          "warn"
         );
-
-        if (data.specs_pending) {
-          enrichSpecsInBackground(keyword, allItems);
-        }
-      }
-    } catch (err) {
-      allItems = [];
-      dimensions = [];
-      document.getElementById("filterSection").classList.add("hidden");
-      document.getElementById("resultSection").classList.add("hidden");
-      showStatus("搜尋失敗：" + err.message, "error");
-    } finally {
-      btn.disabled = false;
-      btn.textContent = "開始搜尋";
-    }
-  }
-
-  async function enrichSpecsInBackground(keyword, items) {
-    try {
-      const res = await fetch(API_BASE_URL + "/api/enrich", {
-        method: "POST",
-        headers: {"Content-Type":"application/json"},
-        body: JSON.stringify({
-          keyword,
-          items: items.map(item => ({
-            id: item.id,
-            store_id: item.store_id,
-            store_name: item.store_name,
-            title: item.title,
-            price: item.price,
-            url: item.url
-          }))
-        })
-      });
-
-      const text = await res.text();
-      if (!res.ok) return;
-
-      let data;
-      try {
-        data = JSON.parse(text);
-      } catch {
         return;
       }
 
-      const enrichments = Array.isArray(data.items) ? data.items : [];
-      if (!enrichments.length) return;
+      document.getElementById("filterSection").classList.toggle(
+        "hidden",
+        dimensions.length === 0
+      );
+      document.getElementById("resultSection").classList.remove("hidden");
 
-      const map = new Map(enrichments.map(x => [String(x.id), x]));
-      allItems = allItems
-        .map(item => {
-          const ai = map.get(String(item.id));
-          if (!ai) return item;
-          return {
-            ...item,
-            ai_match: ai.match !== false,
-            canonical_name: ai.canonical_name || item.canonical_name || item.title,
-            specs: ai.specs || item.specs || {}
-          };
-        })
-        .filter(Boolean);
-
-      dimensions = buildDimensionsFromItems(allItems);
-      renderFilters();
-      renderResults();
-      showStatus(`找到 ${allItems.length} 筆結果，AI 規格整理完成。`, "ok");
-    } catch {
-      // 背景 AI 失敗時保留已經顯示的價格，不中斷使用。
+      showStatus(
+        `找到 ${allItems.length} 筆有來源的商品價格，搜尋耗時約 ${seconds} 秒${data.cache_hit ? "（快取）" : ""}。`,
+        "ok"
+      );
+    } catch (error) {
+      hideResults();
+      showStatus("搜尋失敗：" + error.message, "error");
+    } finally {
+      button.disabled = false;
+      button.textContent = "開始搜尋";
     }
   }
 
-  function buildDimensionsFromItems(items) {
-    const map = new Map();
-    for (const item of items) {
-      for (const [key, value] of Object.entries(item.specs || {})) {
-        if (!value) continue;
-        if (!map.has(key)) map.set(key, new Set());
-        map.get(key).add(String(value));
-      }
-    }
+  function renderSummary(data, seconds) {
+    document.getElementById("summaryText").textContent =
+      data.summary || "已依 Google Search 搜尋結果整理目前可驗證的商品與價格。";
 
-    const preferred = ["容量","儲存空間","顏色","尺寸","版本","記憶體","連線版本"];
-    return [...map.entries()]
-      .map(([key, values]) => ({
-        key,
-        label: key,
-        values: [...values].sort((a,b) => String(a).localeCompare(String(b), "zh-Hant", {numeric:true}))
-      }))
-      .sort((a,b) => {
-        const ai = preferred.indexOf(a.key);
-        const bi = preferred.indexOf(b.key);
-        if (ai === -1 && bi === -1) return a.key.localeCompare(b.key, "zh-Hant");
-        if (ai === -1) return 1;
-        if (bi === -1) return -1;
-        return ai - bi;
-      });
+    document.getElementById("metaText").textContent =
+      `${data.model || "Gemini"} · ${data.source_count || 0} 個來源 · ${seconds} 秒`;
   }
 
   function renderFilters() {
     const box = document.getElementById("filters");
+
     box.innerHTML = dimensions.map(dim => {
-      const buttons = dim.values.map(value => {
+      const buttons = (dim.values || []).map(value => {
         const active = selected[dim.key] === value;
-        return `<button onclick='toggleFilter(${JSON.stringify(dim.key)},${JSON.stringify(value)})'
-          class="px-3 py-2 rounded-lg text-sm border transition ${active ? "bg-blue-600 text-white border-blue-600" : "bg-white hover:bg-slate-50"}">
-          ${escapeHtml(value)}
-        </button>`;
+        return `
+          <button onclick='toggleFilter(${JSON.stringify(dim.key)}, ${JSON.stringify(value)})'
+                  class="px-3 py-2 rounded-lg text-sm border transition
+                    ${active
+                      ? "bg-blue-600 text-white border-blue-600"
+                      : "bg-white hover:bg-slate-50"}">
+            ${escapeHtml(value)}
+          </button>
+        `;
       }).join("");
-      return `<div>
-        <div class="text-sm font-semibold mb-2">${escapeHtml(dim.label)}</div>
-        <div class="flex flex-wrap gap-2">${buttons}</div>
-      </div>`;
+
+      return `
+        <div>
+          <div class="text-sm font-semibold mb-2">${escapeHtml(dim.label)}</div>
+          <div class="flex flex-wrap gap-2">${buttons}</div>
+        </div>
+      `;
     }).join("");
   }
 
   function toggleFilter(key, value) {
-    selected[key] = selected[key] === value ? undefined : value;
-    if (!selected[key]) delete selected[key];
+    if (selected[key] === value) {
+      delete selected[key];
+    } else {
+      selected[key] = value;
+    }
+
     renderFilters();
     renderResults();
   }
@@ -342,104 +297,164 @@
 
   function filteredItems() {
     return allItems.filter(item => {
-      return Object.entries(selected).every(([key, value]) => item.specs && item.specs[key] === value);
+      return Object.entries(selected).every(([key, value]) => {
+        return item.specs && item.specs[key] === value;
+      });
     });
   }
 
   function renderResults() {
-    const items = filteredItems().slice().sort((a,b) => a.price - b.price);
+    const items = filteredItems()
+      .slice()
+      .sort((a, b) => Number(a.price) - Number(b.price));
+
     const body = document.getElementById("resultBody");
     const summary = document.getElementById("resultSummary");
 
-    summary.textContent = Object.keys(selected).length
-      ? `目前篩選：${Object.entries(selected).map(([k,v]) => k + " " + v).join(" / ")}，共 ${items.length} 筆`
-      : `尚未選擇規格，共 ${items.length} 筆`;
+    if (Object.keys(selected).length) {
+      summary.textContent =
+        `目前篩選：${Object.entries(selected)
+          .map(([key, value]) => key + " " + value)
+          .join(" / ")}，共 ${items.length} 筆`;
+    } else {
+      summary.textContent = `尚未選擇規格，共 ${items.length} 筆`;
+    }
 
     if (!items.length) {
-      body.innerHTML = '<tr><td colspan="5" class="text-center py-10 text-slate-500">目前沒有符合這組規格的商品。</td></tr>';
+      body.innerHTML =
+        '<tr><td colspan="6" class="text-center py-10 text-slate-500">目前沒有符合這組規格的商品。</td></tr>';
       return;
     }
 
-    const minPrice = Math.min(...items.map(x => Number(x.price)).filter(Number.isFinite));
+    const minPrice = Math.min(
+      ...items.map(item => Number(item.price)).filter(Number.isFinite)
+    );
 
     body.innerHTML = items.map(item => {
       const lowest = Number(item.price) === minPrice;
+
       const specs = Object.entries(item.specs || {})
-        .map(([k,v]) => `<span class="inline-block mr-1 mb-1 bg-slate-100 px-2 py-1 rounded-md text-xs"><b>${escapeHtml(k)}</b> ${escapeHtml(v)}</span>`)
+        .map(([key, value]) =>
+          `<span class="inline-block mr-1 mb-1 bg-slate-100 px-2 py-1 rounded-md text-xs">
+             <b>${escapeHtml(key)}</b> ${escapeHtml(value)}
+           </span>`
+        )
         .join("");
 
-      return `<tr class="border-b hover:bg-slate-50 ${lowest ? "bg-emerald-50/40" : ""}">
-        <td class="px-4 py-4 whitespace-nowrap font-medium">${escapeHtml(item.store_name)}</td>
-        <td class="px-4 py-4 min-w-[280px]">
-          <div class="font-medium">${escapeHtml(item.canonical_name || item.title)}</div>
-          <div class="text-xs text-slate-400 mt-1">${escapeHtml(item.title)}</div>
-        </td>
-        <td class="px-4 py-4 min-w-[220px]">${specs || '<span class="text-xs text-slate-400">未解析到額外規格</span>'}</td>
-        <td class="px-4 py-4 whitespace-nowrap">
-          <div class="font-bold ${lowest ? "text-emerald-600 text-lg" : ""}">NT$ ${Number(item.price).toLocaleString()}</div>
-          ${lowest ? '<span class="inline-block mt-1 text-[10px] bg-emerald-600 text-white px-2 py-0.5 rounded-full">目前最低價</span>' : ""}
-        </td>
-        <td class="px-4 py-4 text-center">
-          <a href="${escapeAttr(item.url)}" target="_blank" rel="noopener noreferrer"
-             class="inline-block text-xs font-semibold text-blue-600 border border-blue-200 bg-blue-50 hover:bg-blue-600 hover:text-white px-3 py-2 rounded-lg">前往購買 ↗</a>
-        </td>
-      </tr>`;
+      return `
+        <tr class="border-b hover:bg-slate-50 ${lowest ? "bg-emerald-50/40" : ""}">
+          <td class="px-4 py-4 whitespace-nowrap font-medium">
+            ${escapeHtml(item.store_name || item.store)}
+          </td>
+
+          <td class="px-4 py-4 min-w-[280px]">
+            <div class="font-medium">${escapeHtml(item.title)}</div>
+            <div class="text-xs text-slate-400 mt-1">
+              ${escapeHtml(item.source_title || "")}
+            </div>
+          </td>
+
+          <td class="px-4 py-4 min-w-[220px]">
+            ${specs || '<span class="text-xs text-slate-400">未解析到額外規格</span>'}
+          </td>
+
+          <td class="px-4 py-4 whitespace-nowrap">
+            <div class="font-bold ${lowest ? "text-emerald-600 text-lg" : ""}">
+              NT$ ${Number(item.price).toLocaleString()}
+            </div>
+            ${lowest
+              ? '<span class="inline-block mt-1 text-[10px] bg-emerald-600 text-white px-2 py-0.5 rounded-full">目前結果最低價</span>'
+              : ""}
+          </td>
+
+          <td class="px-4 py-4 min-w-[120px] text-xs text-slate-600">
+            ${escapeHtml(item.unit_price_text || "-")}
+          </td>
+
+          <td class="px-4 py-4 text-center">
+            <a href="${escapeAttr(item.source_url || item.url)}"
+               target="_blank"
+               rel="noopener noreferrer"
+               class="inline-block text-xs font-semibold text-blue-600 border border-blue-200 bg-blue-50 hover:bg-blue-600 hover:text-white px-3 py-2 rounded-lg">
+              查看來源 ↗
+            </a>
+          </td>
+        </tr>
+      `;
     }).join("");
   }
 
-  function renderSourceStatus(sources) {
-    document.getElementById("sourceStatus").innerHTML = sources.map(s => {
-      const cls = s.ok
-        ? "bg-emerald-50 text-emerald-700 border-emerald-200"
-        : "bg-rose-50 text-rose-700 border-rose-200";
-      const text = s.ok ? `${s.name}：${s.count} 筆` : `${s.name}：連線失敗`;
-      const title = s.error ? ` title="${escapeAttr(s.error)}"` : "";
-      const manual = !s.ok && s.manual_url
-        ? ` <a class="underline font-semibold ml-1" target="_blank" rel="noopener noreferrer"
-              href="${escapeAttr(s.manual_url.replace("{keyword}", encodeURIComponent(lastKeyword)))}">手動搜尋</a>`
-        : "";
-      return `<span${title} class="text-xs border px-3 py-1.5 rounded-full ${cls}">${escapeHtml(text)}${manual}</span>`;
-    }).join("");
+  function renderSources(data) {
+    const queries = Array.isArray(data.search_queries) ? data.search_queries : [];
+    const sources = Array.isArray(data.sources) ? data.sources : [];
+
+    const queryBox = document.getElementById("searchQueries");
+    queryBox.innerHTML = queries.length
+      ? queries.map(query =>
+          `<span class="text-xs bg-slate-100 text-slate-600 px-3 py-1.5 rounded-full">
+             搜尋：${escapeHtml(query)}
+           </span>`
+        ).join("")
+      : '<span class="text-xs text-slate-400">未提供搜尋字詞</span>';
+
+    const sourceBox = document.getElementById("sourceList");
+    sourceBox.innerHTML = sources.length
+      ? sources.slice(0, 30).map(source => `
+          <a href="${escapeAttr(source.url)}"
+             target="_blank"
+             rel="noopener noreferrer"
+             class="border rounded-xl p-3 hover:bg-slate-50 transition block">
+            <div class="text-sm font-semibold text-blue-700">
+              ${escapeHtml(source.title || source.url)}
+            </div>
+            <div class="text-xs text-slate-400 mt-1 truncate">
+              ${escapeHtml(source.url)}
+            </div>
+            ${source.snippet
+              ? `<div class="text-xs text-slate-500 mt-2 line-clamp-2">${escapeHtml(source.snippet)}</div>`
+              : ""}
+          </a>
+        `).join("")
+      : '<div class="text-sm text-slate-400">沒有可顯示的 Google Search 來源。</div>';
   }
 
-  function renderFixedStores() {
-    document.getElementById("fixedStoreList").innerHTML = FIXED_STORES.map(store => {
-      const auto = store.mode === "auto";
-      const badge = auto
-        ? '<span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">自動比價</span>'
-        : '<span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-500">搜尋入口</span>';
+  function hideResults() {
+    allItems = [];
+    dimensions = [];
+    selected = {};
+    lastData = null;
 
-      return `<a href="${escapeAttr(store.homepage)}" target="_blank" rel="noopener noreferrer"
-        class="flex items-center justify-between gap-3 border rounded-xl px-3 py-3 hover:bg-slate-50 transition">
-        <span class="text-sm font-medium">${escapeHtml(store.name)}</span>
-        ${badge}
-      </a>`;
-    }).join("");
-  }
-
-  function renderFixedLinks(keyword) {
-    const section = document.getElementById("fixedLinksSection");
-    section.classList.add("hidden");
-    document.getElementById("fixedLinks").innerHTML = "";
+    document.getElementById("summarySection").classList.add("hidden");
+    document.getElementById("filterSection").classList.add("hidden");
+    document.getElementById("resultSection").classList.add("hidden");
+    document.getElementById("sourcesSection").classList.add("hidden");
   }
 
   function showStatus(message, type) {
-    const el = document.getElementById("status");
-    const cls = {
+    const element = document.getElementById("status");
+    const classes = {
       info: "bg-blue-50 text-blue-700 border border-blue-200",
       ok: "bg-emerald-50 text-emerald-700 border border-emerald-200",
       warn: "bg-amber-50 text-amber-700 border border-amber-200",
       error: "bg-rose-50 text-rose-700 border border-rose-200"
-    }[type] || "bg-slate-50 text-slate-700 border";
-    el.className = "text-sm rounded-xl p-3 " + cls;
-    el.textContent = message;
+    };
+
+    element.className = "text-sm rounded-xl p-3 " + (classes[type] || classes.info);
+    element.textContent = message;
   }
 
-  function escapeHtml(v) {
-    return String(v ?? "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#039;");
+  function escapeHtml(value) {
+    return String(value ?? "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#039;");
   }
 
-  function escapeAttr(v) { return escapeHtml(v); }
+  function escapeAttr(value) {
+    return escapeHtml(value);
+  }
 </script>
 </body>
 </html>
