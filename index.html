@@ -34,6 +34,35 @@
       <div id="status" class="hidden text-sm rounded-xl p-3"></div>
     </section>
 
+    <section class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-5">
+      <div>
+        <h2 class="text-lg font-bold">賣場設定</h2>
+        <p class="text-xs text-slate-500 mt-1">勾選要參與自動比價的賣場，也可以新增其他網站作為快速搜尋入口。</p>
+      </div>
+
+      <div>
+        <div class="text-sm font-semibold mb-2">自動比價賣場</div>
+        <div id="builtInStores" class="flex flex-wrap gap-2"></div>
+      </div>
+
+      <div class="border-t pt-4 space-y-3">
+        <div class="text-sm font-semibold">新增賣場網站</div>
+        <div class="grid md:grid-cols-[180px_1fr_auto] gap-2">
+          <input id="customStoreName" class="border rounded-xl px-3 py-2 text-sm" placeholder="賣場名稱，例如 Costco" />
+          <input id="customStoreTemplate" class="border rounded-xl px-3 py-2 text-sm"
+                 placeholder="搜尋網址，請用 {keyword} 代表關鍵字，例如 https://example.com/search?q={keyword}" />
+          <button onclick="addCustomStore()" class="bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold px-4 py-2 rounded-xl">新增</button>
+        </div>
+        <div id="customStoreList" class="flex flex-wrap gap-2"></div>
+        <p class="text-xs text-slate-400">自訂賣場目前是一鍵搜尋入口；若要自動抓價格，需要另外加入該網站的資料介面。</p>
+      </div>
+    </section>
+
+    <section id="customLinksSection" class="hidden bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+      <h2 class="text-lg font-bold mb-3">其他自訂賣場</h2>
+      <div id="customLinks" class="flex flex-wrap gap-2"></div>
+    </section>
+
     <section id="filterSection" class="hidden bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-5">
       <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
         <div>
@@ -85,11 +114,24 @@
   let allItems = [];
   let dimensions = [];
   let selected = {};
+  let lastKeyword = "";
+
+  const BUILT_IN_STORES = [
+    { id: "pchome", name: "PChome 24h" },
+    { id: "momo", name: "momo購物網" },
+    { id: "shopee", name: "蝦皮購物" }
+  ];
+
+  let enabledSources = JSON.parse(localStorage.getItem("shopping_enabled_sources") || "null")
+    || BUILT_IN_STORES.map(x => x.id);
+
+  let customStores = JSON.parse(localStorage.getItem("shopping_custom_stores") || "[]");
 
   window.addEventListener("load", () => {
     document.getElementById("keywordInput").addEventListener("keydown", e => {
       if (e.key === "Enter") runSearch();
     });
+    renderStoreManager();
     checkHealth();
   });
 
@@ -121,6 +163,8 @@
   async function runSearch() {
     const keyword = document.getElementById("keywordInput").value.trim();
     if (!keyword) return showStatus("請先輸入商品名稱。", "warn");
+    if (!enabledSources.length) return showStatus("請至少勾選一個自動比價賣場。", "warn");
+    lastKeyword = keyword;
 
     const btn = document.getElementById("searchBtn");
     btn.disabled = true;
@@ -131,7 +175,7 @@
       const res = await fetch(API_BASE_URL + "/api/search", {
         method: "POST",
         headers: {"Content-Type":"application/json"},
-        body: JSON.stringify({ keyword, sources:["pchome","momo","shopee"] })
+        body: JSON.stringify({ keyword, sources: enabledSources })
       });
 
       const responseText = await res.text();
@@ -152,6 +196,7 @@
       selected = {};
 
       renderSourceStatus(data.sources || []);
+      renderCustomLinks(keyword);
       renderFilters();
       renderResults();
 
@@ -164,7 +209,10 @@
       } else {
         document.getElementById("filterSection").classList.toggle("hidden", dimensions.length === 0);
         document.getElementById("resultSection").classList.remove("hidden");
-        showStatus(`找到 ${allItems.length} 筆符合主商品的結果，可再選擇規格。`, "ok");
+        showStatus(
+          `找到 ${allItems.length} 筆符合主商品的結果，可再選擇規格。${data.cache_hit ? "（使用快取）" : ""}`,
+          "ok"
+        );
       }
     } catch (err) {
       allItems = [];
@@ -257,10 +305,93 @@
 
   function renderSourceStatus(sources) {
     document.getElementById("sourceStatus").innerHTML = sources.map(s => {
-      const cls = s.ok ? "bg-emerald-50 text-emerald-700 border-emerald-200" : "bg-rose-50 text-rose-700 border-rose-200";
+      const cls = s.ok
+        ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+        : "bg-rose-50 text-rose-700 border-rose-200";
       const text = s.ok ? `${s.name}：${s.count} 筆` : `${s.name}：連線失敗`;
       const title = s.error ? ` title="${escapeAttr(s.error)}"` : "";
-      return `<span${title} class="text-xs border px-3 py-1.5 rounded-full ${cls}">${escapeHtml(text)}</span>`;
+      const manual = !s.ok && s.manual_url
+        ? ` <a class="underline font-semibold ml-1" target="_blank" rel="noopener noreferrer"
+              href="${escapeAttr(s.manual_url.replace("{keyword}", encodeURIComponent(lastKeyword)))}">手動搜尋</a>`
+        : "";
+      return `<span${title} class="text-xs border px-3 py-1.5 rounded-full ${cls}">${escapeHtml(text)}${manual}</span>`;
+    }).join("");
+  }
+
+  function renderStoreManager() {
+    document.getElementById("builtInStores").innerHTML = BUILT_IN_STORES.map(store => {
+      const checked = enabledSources.includes(store.id);
+      return `<label class="inline-flex items-center gap-2 border rounded-xl px-3 py-2 text-sm cursor-pointer hover:bg-slate-50">
+        <input type="checkbox" ${checked ? "checked" : ""} onchange="toggleBuiltInStore('${store.id}', this.checked)" />
+        <span>${escapeHtml(store.name)}</span>
+      </label>`;
+    }).join("");
+
+    document.getElementById("customStoreList").innerHTML = customStores.length
+      ? customStores.map((store, index) => `
+          <span class="inline-flex items-center gap-2 bg-slate-100 rounded-full px-3 py-1.5 text-xs">
+            ${escapeHtml(store.name)}
+            <button onclick="removeCustomStore(${index})" class="text-rose-600 font-bold">×</button>
+          </span>
+        `).join("")
+      : '<span class="text-xs text-slate-400">尚未新增自訂賣場</span>';
+
+    localStorage.setItem("shopping_enabled_sources", JSON.stringify(enabledSources));
+    localStorage.setItem("shopping_custom_stores", JSON.stringify(customStores));
+  }
+
+  function toggleBuiltInStore(id, checked) {
+    if (checked && !enabledSources.includes(id)) enabledSources.push(id);
+    if (!checked) enabledSources = enabledSources.filter(x => x !== id);
+    renderStoreManager();
+  }
+
+  function addCustomStore() {
+    const nameEl = document.getElementById("customStoreName");
+    const templateEl = document.getElementById("customStoreTemplate");
+    const name = nameEl.value.trim();
+    const search_template = templateEl.value.trim();
+
+    if (!name) return showStatus("請輸入賣場名稱。", "warn");
+    if (!search_template.includes("{keyword}")) {
+      return showStatus("搜尋網址必須包含 {keyword}，系統才能代入商品名稱。", "warn");
+    }
+
+    try {
+      new URL(search_template.replace("{keyword}", "test"));
+    } catch {
+      return showStatus("搜尋網址格式不正確。", "warn");
+    }
+
+    customStores.push({ name, search_template });
+    nameEl.value = "";
+    templateEl.value = "";
+    renderStoreManager();
+    if (lastKeyword) renderCustomLinks(lastKeyword);
+    showStatus(`已新增賣場：${name}`, "ok");
+  }
+
+  function removeCustomStore(index) {
+    customStores.splice(index, 1);
+    renderStoreManager();
+    if (lastKeyword) renderCustomLinks(lastKeyword);
+  }
+
+  function renderCustomLinks(keyword) {
+    const section = document.getElementById("customLinksSection");
+    const box = document.getElementById("customLinks");
+    if (!customStores.length) {
+      section.classList.add("hidden");
+      box.innerHTML = "";
+      return;
+    }
+    section.classList.remove("hidden");
+    box.innerHTML = customStores.map(store => {
+      const href = store.search_template.replace("{keyword}", encodeURIComponent(keyword));
+      return `<a href="${escapeAttr(href)}" target="_blank" rel="noopener noreferrer"
+        class="inline-block border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-600 hover:text-white px-3 py-2 rounded-xl text-sm font-semibold">
+        ${escapeHtml(store.name)} 搜尋「${escapeHtml(keyword)}」 ↗
+      </a>`;
     }).join("");
   }
 
