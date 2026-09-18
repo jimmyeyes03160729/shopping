@@ -73,7 +73,7 @@ worker/wrangler.toml
 目前：
 
 ```toml
-GEMINI_MODEL = "gemini-3.6-flash"
+GEMINI_MODEL = "gemini-3.8-flash"
 ```
 
 如果你的 Gemini API 可用模型不同，可直接修改。
@@ -96,3 +96,15 @@ GEMINI_MODEL = "gemini-3.6-flash"
 - `worker/package.json`：Worker 部署工具
 
 `app.py` 與 `comparator.py` 已停止作為主要流程使用，避免舊版 AI 猜價邏輯繼續被誤用。
+
+
+## Gemini 過載備援
+
+後端遇到 Gemini 429 / 5xx（例如 503 high demand）時會自動重試，並依序切換備援模型：
+
+- gemini-3.8-flash
+- gemini-3.7-flash
+- gemini-3.6-flash
+- gemini-3.5-flash-lite
+
+因此單一模型尖峰過載時，不會直接讓整次比價失敗。
