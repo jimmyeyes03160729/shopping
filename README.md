@@ -1,6 +1,6 @@
 # AI 即時全網比價
 
-目前專案已改成 **Gemini + Google Search Grounding** 架構，不再自行維護各商城爬蟲。
+目前專案使用 **SerpAPI Google Shopping + Groq** 架構：SerpAPI 提供商品與價格來源，Groq 負責規格解析；Groq 不可用時才由 Gemini 接手解析。
 
 ## 架構
 
@@ -9,11 +9,11 @@ GitHub Pages
     ↓
 Cloudflare Worker
     ↓
-Gemini Interactions API
+SerpAPI Google Shopping
     ↓
-Google Search Grounding
+Groq Structured Outputs
     ↓
-結構化商品 / 規格 / 價格 / 來源
+Gemini fallback（僅 Groq 失敗時）
 ```
 
 ## 使用方式
@@ -28,7 +28,7 @@ Sony WH-1000XM6
 
 系統會：
 
-1. 讓 Gemini 使用 Google Search 搜尋目前網路資料。
+1. 由 SerpAPI 查詢 Google Shopping 的目前商品資料。
 2. 不限制特定商城。
 3. 找出台灣可以購買的商品與售價。
 4. 自動整理動態規格。
@@ -40,36 +40,26 @@ Sony WH-1000XM6
 
 ## 價格可信度原則
 
-Gemini 不可以只靠模型記憶猜價格。
+Groq 與 Gemini 不可以只靠模型記憶猜價格。
 
-後端會擷取本次 Google Search 實際回傳的來源網址，並再次驗證：
+後端會保留 SerpAPI Google Shopping 實際回傳的商品連結，並再次驗證：
 
 - 商品必須有價格。
 - 商品必須有 source_url。
-- source_url 必須對應到本次 Google Search 的實際來源。
+- source_url 必須對應到本次 Google Shopping 的實際商品連結。
 - 無法驗證來源的商品直接丟棄。
 
 所以網站顯示的每筆價格都應該能點「查看來源」回到本次搜尋取得的網頁。
 
-## Google Search Grounding
+## 搜尋與解析流程
 
-後端使用 Gemini Interactions API：
+後端會呼叫 SerpAPI Google Shopping，並以 Groq Structured Outputs 整理資料：
 
 ```text
-POST https://generativelanguage.googleapis.com/v1beta/interactions
+GET https://serpapi.com/search.json?engine=google_shopping
 ```
 
-並開啟：
-
-```json
-{
-  "tools": [
-    { "type": "google_search" }
-  ]
-}
-```
-
-同時使用 structured output，把結果固定成 JSON 商品資料。
+Groq 發生配額、速率限制、暫時性服務錯誤或格式錯誤時，才使用 Gemini 備援；兩者都只收到 SerpAPI 已取得的商品列，並以 structured output 固定 JSON 格式。
 
 ## 主要檔案
 
@@ -78,13 +68,13 @@ POST https://generativelanguage.googleapis.com/v1beta/interactions
   - 商品搜尋
   - 動態規格篩選
   - 比價結果
-  - Google Search 來源
+  - Google Shopping 來源
 
 - `worker/src/index.js`
   - Cloudflare Worker
-  - Gemini API Secret
-  - Google Search Grounding
-  - Structured Output
+  - SerpAPI / Groq / Gemini API Secret
+  - Google Shopping 商品來源
+  - Groq Structured Output 與 Gemini 備援
   - 來源驗證
   - 10 分鐘快取
 
@@ -93,7 +83,7 @@ POST https://generativelanguage.googleapis.com/v1beta/interactions
 
 ## Cloudflare Worker
 
-Gemini API Key 存在 Cloudflare Secret，不會放在 GitHub Pages 原始碼。
+API Key 存在 Cloudflare Secret，不會放在 GitHub Pages 原始碼。
 
 第一次設定：
 
@@ -101,6 +91,8 @@ Gemini API Key 存在 Cloudflare Secret，不會放在 GitHub Pages 原始碼。
 cd worker
 npm install
 npx wrangler login
+npx wrangler secret put SERPAPI_API_KEY
+npx wrangler secret put GROQ_API_KEY
 npx wrangler secret put GEMINI_API_KEY
 npx wrangler deploy
 ```
@@ -111,18 +103,17 @@ npx wrangler deploy
 npx wrangler deploy
 ```
 
-## Gemini 模型
+## 模型與額度
 
-目前 `worker/wrangler.toml` 預設：
+目前預設使用 `openai/gpt-oss-20b` 進行 Groq 解析，`gemini-3.6-flash` 為備援。Gemini Secret 可不設定，但此時 Groq 無法使用就會回傳錯誤。
 
 ```toml
 GEMINI_MODEL = "gemini-3.6-flash"
+GROQ_MODEL = "openai/gpt-oss-20b"
 ```
 
-後端遇到暫時性 429 / 5xx 會重試，並可嘗試備援 Flash 型號。
+SerpAPI 免費方案每月 250 次搜尋；相同查詢會在 Worker 快取 10 分鐘，以降低使用量。
 
 ## 注意
 
-Google Search Grounding 的使用資格與計費取決於 Gemini API 專案 / API Tier，和 Gemini App 的 Pro 訂閱不是同一件事。
-
-如果 API 專案未開通 Google Search Grounding，網站會直接顯示 Gemini API 回傳的錯誤，不會退回 AI 猜價模式。
+Gemini API 的計費資格與 Gemini App 訂閱不同；它只會在 Groq 無法完成解析時使用，並絕不做搜尋或猜價。

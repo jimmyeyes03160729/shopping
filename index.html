@@ -13,7 +13,7 @@
         <div>
           <h1 class="text-2xl font-bold">🛍️ AI 即時全網比價</h1>
           <p class="text-sm text-slate-500 mt-1">
-            使用 Gemini + Google Search 搜尋目前網路上的商品、規格與價格，不限制特定商城。
+            SerpAPI Google Shopping 提供價格來源；Groq 整理規格，Gemini 僅在備援時使用。
           </p>
         </div>
         <div class="flex flex-col sm:items-end gap-2">
@@ -86,7 +86,7 @@
           <p id="resultSummary" class="text-xs text-slate-500 mt-1"></p>
         </div>
         <span class="text-xs px-3 py-1.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
-          僅顯示有 Google Search 來源的價格
+          僅顯示有 Google Shopping 來源的價格
         </span>
       </div>
 
@@ -110,9 +110,9 @@
     <section id="sourcesSection"
              class="hidden bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-4">
       <div>
-        <h2 class="text-lg font-bold">Google Search 搜尋來源</h2>
+        <h2 class="text-lg font-bold">Google Shopping 商品來源</h2>
         <p class="text-xs text-slate-500 mt-1">
-          下列網址是本次 Gemini 搜尋實際取得的網頁來源。
+          下列網址是 SerpAPI Google Shopping 回傳的商品連結。
         </p>
       </div>
 
@@ -144,12 +144,12 @@
       const response = await fetch(API_BASE_URL + "/api/health", { cache: "no-store" });
       const data = await response.json();
 
-      if (response.ok && data.ok && data.gemini) {
-        badge.textContent = "Google Search 比價服務正常";
+      if (response.ok && data.ok && data.serpapi && (data.groq || data.gemini)) {
+        badge.textContent = data.groq ? "Google Shopping + Groq 服務正常" : "Google Shopping + Gemini 備援模式";
         badge.className =
           "text-xs px-3 py-1.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200";
       } else {
-        badge.textContent = "後端未設定 Gemini";
+        badge.textContent = "後端缺少 SerpAPI 或解析服務設定";
         badge.className =
           "text-xs px-3 py-1.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200";
       }
@@ -170,7 +170,7 @@
 
     hideResults();
     showStatus(
-      "Gemini 正在使用 Google Search 搜尋目前的網路商品與價格，通常需要數秒。",
+      "正在從 Google Shopping 取得商品價格，再整理規格與相同商品。",
       "info"
     );
 
@@ -231,8 +231,8 @@
         const v = data.verification || {};
         showStatus(
           data.source_count
-            ? `Google Search 找到 ${data.source_count} 個引用來源、${Number(v.candidate_products || 0)} 筆候選商品，但目前沒有商品通過價格與來源驗證。`
-            : "這次 Google Search 沒有回傳可用的引用來源，因此無法顯示可驗證價格。",
+            ? `Google Shopping 找到 ${data.source_count} 筆候選商品，但目前沒有商品通過規格判斷。`
+            : "這次 Google Shopping 沒有回傳可用商品，因此無法顯示比價結果。",
           "warn"
         );
         return;
@@ -270,7 +270,7 @@
       input_tokens: 0,
       output_tokens: 0,
       thought_tokens: 0,
-      google_search_requests: 0,
+      serpapi_searches: 0,
       estimated_token_cost_usd: 0
     };
 
@@ -289,7 +289,7 @@
     current.input_tokens += Number(usage.input_tokens || 0);
     current.output_tokens += Number(usage.output_tokens || 0);
     current.thought_tokens += Number(usage.thought_tokens || 0);
-    current.google_search_requests += Number(usage.google_search_requests || 0);
+    current.serpapi_searches += Number(usage.serpapi_searches || 0);
     current.estimated_token_cost_usd += Number(usage.estimated_token_cost_usd || 0);
 
     localStorage.setItem(currentMonthKey(), JSON.stringify(current));
@@ -299,31 +299,20 @@
   function renderMonthlyUsage() {
     const usage = getMonthlyUsage();
 
-    const freeGrounding = 5000;
-    const groundingUnitCost = 0.014;
-    const paidGroundingRequests = Math.max(
-      0,
-      Number(usage.google_search_requests || 0) - freeGrounding
-    );
-    const groundingCost = paidGroundingRequests * groundingUnitCost;
-    const estimatedTotal =
-      Number(usage.estimated_token_cost_usd || 0) + groundingCost;
-
     const badge = document.getElementById("monthlyUsageBadge");
     if (!badge) return;
 
     badge.innerHTML =
       `本月搜尋次數：<b>${Number(usage.searches || 0)}</b>　/　` +
-      `預估 API 費用：<b>US${estimatedTotal.toFixed(4)}</b>` +
+      `SerpAPI 用量：<b>${Number(usage.serpapi_searches || 0)}</b> / 250（免費額度）` +
       `<div class="mt-1 text-[10px] text-slate-400">` +
-      `Google Search 要求：${Number(usage.google_search_requests || 0)} 次；` +
-      `本站本機估算，不含同一 Gemini 專案在其他程式的用量` +
+      `僅為此瀏覽器的本機統計；Groq 用量與 Gemini 備援用量請以各供應商後台為準` +
       `</div>`;
   }
 
   function renderSummary(data, seconds) {
     document.getElementById("summaryText").textContent =
-      data.summary || "已依 Google Search 搜尋結果整理目前可驗證的商品與價格。";
+      data.summary || "已依 Google Shopping 搜尋結果整理目前可驗證的商品與價格。";
 
     const v = data.verification || {};
     const verificationText =
@@ -332,7 +321,7 @@
         : "";
 
     document.getElementById("metaText").textContent =
-      `${data.model || "Gemini"} · ${data.source_count || 0} 個來源${verificationText} · ${seconds} 秒`;
+      `${data.parser || "解析器"}：${data.model || "未使用"} · ${data.source_count || 0} 個來源${verificationText} · ${seconds} 秒`;
   }
 
   function renderFilters() {
@@ -478,7 +467,7 @@
              搜尋：${escapeHtml(query)}
            </span>`
         ).join("")
-      : '<span class="text-xs text-slate-400">未提供搜尋字詞</span>';
+      : '<span class="text-xs text-slate-400">本次未提供額外搜尋字詞</span>';
 
     const sourceBox = document.getElementById("sourceList");
     sourceBox.innerHTML = sources.length
@@ -498,7 +487,7 @@
               : ""}
           </a>
         `).join("")
-      : '<div class="text-sm text-slate-400">沒有可顯示的 Google Search 來源。</div>';
+      : '<div class="text-sm text-slate-400">沒有可顯示的 Google Shopping 來源。</div>';
   }
 
   function hideResults() {
