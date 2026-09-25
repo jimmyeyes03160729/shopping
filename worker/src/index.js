@@ -156,7 +156,7 @@ async function shoppingSearch(keyword, apiKey) {
         title,
         price,
         currency: clean(row.currency) || "TWD",
-        unit_price_text: clean((row.extensions || []).find((value) => /每|\\/|unit/i.test(value))),
+        unit_price_text: clean((row.extensions || []).find((value) => new RegExp("每|/", "i").test(value))),
         hints: (row.extensions || []).slice(0, 8)
       };
     })
@@ -311,7 +311,7 @@ function dimensions(products) {
 }
 
 function priceNumber(value) {
-  const match = String(value ?? "").replace(/,/g, "").match(/\\d+(?:\\.\\d+)?/);
+  const match = String(value ?? "").split(",").join("").match(/[0-9]+(?:[.][0-9]+)?/);
   return match ? Number(match[0]) : NaN;
 }
 
@@ -326,11 +326,11 @@ function jsonParse(text) {
 }
 
 function clean(value) {
-  return String(value ?? "").replace(/\\s+/g, " ").trim();
+  return String(value ?? "").split(/\s+/).join(" ").trim();
 }
 
 function normalize(value) {
-  return clean(value).toLowerCase().replace(/[^a-z0-9\\u4e00-\\u9fff]+/g, "");
+  return clean(value).toLowerCase().replace(new RegExp("[^a-z0-9\\u4e00-\\u9fff]+", "g"), "");
 }
 
 function httpUrl(value) {
@@ -345,8 +345,8 @@ function httpUrl(value) {
 function urlKey(value) {
   try {
     const url = new URL(value);
-    return url.hostname.toLowerCase().replace(/^www\\./, "") +
-      (url.pathname.replace(/\\/+$/, "") || "/");
+    return url.hostname.toLowerCase().replace("www.", "") +
+      (url.pathname.replace(new RegExp("/+$"), "") || "/");
   } catch {
     return "";
   }
@@ -354,7 +354,7 @@ function urlKey(value) {
 
 function host(value) {
   try {
-    return new URL(value).hostname.replace(/^www\\./, "");
+    return new URL(value).hostname.replace("www.", "");
   } catch {
     return "";
   }
