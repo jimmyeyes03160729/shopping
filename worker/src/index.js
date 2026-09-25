@@ -1,6 +1,7 @@
 const JSON_HEADERS = { "content-type": "application/json; charset=utf-8" };
 const CACHE = new Map();
 const CACHE_TTL = 10 * 60 * 1000;
+const LLM_TIMEOUT_MS = 8000;
 const SCHEMA = {
   type: "object",
   properties: {
@@ -190,8 +191,13 @@ async function parseProducts(keyword, candidates, env) {
         fallback: false
       };
     } catch (error) {
-      if (!env.GEMINI_API_KEY) {
-        throw new Error("Groq 解析失敗，且未設定 Gemini 備援：" + cleanError(error));
+      if (!shouldUseGemini(error) || !env.GEMINI_API_KEY) {
+        return {
+          data: ruleBasedProducts(keyword, candidates),
+          provider: "規則備援",
+          model: "Groq 暫時無回應",
+          fallback: true
+        };
       }
     }
   }
@@ -232,7 +238,7 @@ async function groq(prompt, apiKey, model) {
         }
       })
     },
-    25000,
+    LLM_TIMEOUT_MS,
     "Groq 商品解析逾時"
   );
   const text = await response.text();
@@ -255,7 +261,7 @@ async function gemini(prompt, apiKey, model) {
         }
       })
     },
-    25000,
+    LLM_TIMEOUT_MS,
     "Gemini 商品解析逾時"
   );
   const text = await response.text();
@@ -316,6 +322,14 @@ function ruleBasedProducts(keyword, candidates) {
     summary: "AI 解析服務暫時無回應，以下保留 Google Shopping 已提供價格與連結的商品。",
     products
   };
+}
+
+function shouldUseGemini(error) {
+  const message = cleanError(error).toLowerCase();
+  return message.includes("http 429") ||
+    message.includes("quota") ||
+    message.includes("billing") ||
+    message.includes("rate limit");
 }
 
 function dimensions(products) {
