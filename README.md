@@ -103,6 +103,10 @@ npx wrangler deploy
 npx wrangler deploy
 ```
 
+不使用終端機時，可在 GitHub 專案的 Settings → Secrets and variables → Actions 新增
+`CLOUDFLARE_API_TOKEN` 與 `CLOUDFLARE_ACCOUNT_ID`。新增後，推送到 `main` 的
+`worker/` 變更會由 GitHub Actions 自動部署。
+
 ## 模型與額度
 
 目前預設使用 `openai/gpt-oss-20b` 進行 Groq 解析，`gemini-3.6-flash` 為備援。Gemini Secret 可不設定，但此時 Groq 無法使用就會回傳錯誤。
