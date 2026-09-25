@@ -45,7 +45,7 @@ export default {
         groq: Boolean(env.GROQ_API_KEY),
         gemini: Boolean(env.GEMINI_API_KEY),
         mode: "serpapi-google-shopping-with-groq-gemini-fallback",
-        groq_model: env.GROQ_MODEL || "openai/gpt-oss-20b",
+        groq_model: getGroqModel(env),
         gemini_model: env.GEMINI_MODEL || "gemini-3.6-flash"
       });
     }
@@ -184,9 +184,9 @@ async function parseProducts(keyword, candidates, env) {
   if (env.GROQ_API_KEY) {
     try {
       return {
-        data: await groq(prompt, env.GROQ_API_KEY, env.GROQ_MODEL || "openai/gpt-oss-20b"),
+        data: await groq(prompt, env.GROQ_API_KEY, getGroqModel(env)),
         provider: "Groq",
-        model: env.GROQ_MODEL || "openai/gpt-oss-20b",
+        model: getGroqModel(env),
         fallback: false
       };
     } catch (error) {
@@ -327,6 +327,11 @@ function jsonParse(text) {
 
 function clean(value) {
   return String(value ?? "").split(/\s+/).join(" ").trim();
+}
+
+function getGroqModel(env) {
+  const configured = clean(env.GROQ_MODEL);
+  return configured.includes("/") ? configured : "openai/gpt-oss-20b";
 }
 
 function normalize(value) {
