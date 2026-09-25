@@ -196,12 +196,21 @@ async function parseProducts(keyword, candidates, env) {
     }
   }
   if (!env.GEMINI_API_KEY) throw new Error("Groq 無法使用，且未設定 GEMINI_API_KEY 備援");
-  return {
-    data: await gemini(prompt, env.GEMINI_API_KEY, env.GEMINI_MODEL || "gemini-3.6-flash"),
-    provider: "Gemini",
-    model: env.GEMINI_MODEL || "gemini-3.6-flash",
-    fallback: Boolean(env.GROQ_API_KEY)
-  };
+  try {
+    return {
+      data: await gemini(prompt, env.GEMINI_API_KEY, env.GEMINI_MODEL || "gemini-3.6-flash"),
+      provider: "Gemini",
+      model: env.GEMINI_MODEL || "gemini-3.6-flash",
+      fallback: Boolean(env.GROQ_API_KEY)
+    };
+  } catch {
+    return {
+      data: ruleBasedProducts(keyword, candidates),
+      provider: "規則備援",
+      model: "不使用模型",
+      fallback: true
+    };
+  }
 }
 
 async function groq(prompt, apiKey, model) {
@@ -293,6 +302,20 @@ function cleanSpecs(list) {
     if (label && value && value !== "未知") out[label] = value;
   }
   return out;
+}
+
+function ruleBasedProducts(keyword, candidates) {
+  const excluded = /二手|中古|配件|保護殼|保護貼|充電線|支架|替換|維修/;
+  const products = candidates.map((candidate) => ({
+    source_id: candidate.source_id,
+    canonical_name: candidate.title,
+    is_target_match: !excluded.test(candidate.title),
+    specs: []
+  }));
+  return {
+    summary: "AI 解析服務暫時無回應，以下保留 Google Shopping 已提供價格與連結的商品。",
+    products
+  };
 }
 
 function dimensions(products) {
